@@ -4,7 +4,7 @@
         "name":  "旅行列車",
         "type":  "フィルタプラグイン",
         "summary":  "到着・乗車・走行・降車・発車の鉄道旅行を描く",
-        "description":  "https://raw.githubusercontent.com/vramwiz/SYNC_TravelTrain/refs/heads/main/README.md",
+        "description":  "AviUtl2で列車の到着、乗車、走行、降車、発車を描くメディアオブジェクトです。ホームや車内に立ち絵を重ねられます。\n\n## 主な機能\n\n- 通勤電車2種と特急2種から選択し、車体と帯の色を調整できます。\n- ビル街、住宅街、田園、海岸の風景を選べます。地下駅やトンネル、高架の演出にも対応します。\n- 描画レイヤーを分けて、窓越しや開いた扉の前後に立ち絵を配置できます。\n\n## 使い方\n\nメディアオブジェクトの追加メニューで「SYNC」→「旅行列車」を選びます。「シーンプリセット」と「列車プリセット」で場面と車両を設定します。走行の速さは「風景」→「走行速度（px/秒）」で、加速・減速時間は「時間（秒）・走行」で調整できます。\n\n64ビット版Windowsで動作するAviUtl ExEdit2 v2.1.16以降に対応しています。",
         "author":  "VRAMの魔術師",
         "repoURL":  "https://github.com/vramwiz/SYNC_TravelTrain/",
         "licenses":  [
