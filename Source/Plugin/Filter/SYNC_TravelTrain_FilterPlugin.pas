@@ -101,7 +101,7 @@ begin
   if not TableInitialized then
   begin
     SetupPluginTable(FILTER_FLAG_VIDEO or FILTER_FLAG_INPUT or FILTER_FLAG_USERDATA,
-      '旅行列車', 'SYNC', '旅行列車 / SYNC_TravelTrain', RenderTrain, nil);
+      '旅行列車', 'SYNC', '旅行列車 / SYNC_TravelTrain v1.0.0', RenderTrain, nil);
     RegisterTrainParameters;
     GetPluginTable^.Func_Create := CreateTrain;
     GetPluginTable^.Func_Destroy := DestroyTrain;

@@ -11,12 +11,14 @@ uses TravelTrain_Settings;
 type
   TTrainFrame = record
     TrainVisible: Boolean;
-    TrainX: Single;
-    DoorOpen: Single;
-    Distance: Double;
+    TrainX: Single;              // 引き画の横移動量（論理ピクセル）。
+    DoorOpen: Single;            // 0 は閉扉、1 は全開。
+    Distance, RunLength: Double; // 走行距離と全行程の長さ（論理ピクセル）。
+    ArrivalProgress: Double;     // 到着ホームの進入率（0～1）。
   end;
 
-// レイヤーや前フレームに依存しない。工程完了後は終端の構図を保持する。
+// Seconds はオブジェクト先頭からの秒数。前フレームに依存せず各工程の位置を返す。
+// 工程完了後は終端の構図を保持する。
 function EvaluateTrainFrame(const S: TTrainSettings; Seconds: Double): TTrainFrame;
 
 implementation
@@ -46,6 +48,11 @@ begin
   Result := 1 - Ease(Progress(Elapsed - Opening - Holding, Closing));
 end;
 
+function RouteLength(const T: TTrainTracks): Double;
+begin
+  Result := (T[ttRunAccelerate] * 0.5 + T[ttRunCruise] + T[ttRunBrake] * 0.5) * T[ttSpeed];
+end;
+
 function DistanceAt(const T: TTrainTracks; Seconds: Double): Double;
 var
   Elapsed, Accel, Cruise, Brake, Part, Distance: Double;
@@ -72,7 +79,7 @@ end;
 
 function EvaluateTrainFrame(const S: TTrainSettings; Seconds: Double): TTrainFrame;
 var
-  Elapsed, P: Double;
+  Elapsed, P, Approach: Double;
 begin
   Result := Default(TTrainFrame);
   if IsNan(Seconds) or IsInfinite(Seconds) or (Seconds < 0) then Seconds := 0;
@@ -87,9 +94,24 @@ begin
       end;
     tsBoard: Result.DoorOpen := DoorAt(Seconds, S.Tracks[ttDoorBefore], S.Tracks[ttDoorOpen],
       S.Tracks[ttDoorHold], S.Tracks[ttDoorClose], S.Tracks[ttDoorAfter]);
-    tsExit: Result.DoorOpen := DoorAt(Seconds, S.Tracks[ttExitBefore], S.Tracks[ttExitOpen],
-      S.Tracks[ttExitHold], S.Tracks[ttExitClose], S.Tracks[ttExitAfter]);
-    tsRun: Result.Distance := DistanceAt(S.Tracks, Seconds);
+    tsExit:
+      begin
+        Result.DoorOpen := DoorAt(Seconds, S.Tracks[ttExitBefore], S.Tracks[ttExitOpen],
+          S.Tracks[ttExitHold], S.Tracks[ttExitClose], S.Tracks[ttExitAfter]);
+        Result.Distance := RouteLength(S.Tracks);
+      end;
+    tsRun:
+      begin
+        Result.RunLength := RouteLength(S.Tracks);
+        Result.Distance := DistanceAt(S.Tracks, Seconds);
+        if Result.RunLength > 0 then
+        begin
+          // 減速中にホームへ入り、減速が0秒の設定でも走行の終盤で到着する。
+          Approach := Min(Result.RunLength * 0.34,
+            Max(300.0, S.Tracks[ttRunBrake] * S.Tracks[ttSpeed] * 0.5));
+          Result.ArrivalProgress := 1 - EnsureRange((Result.RunLength - Result.Distance) / Approach, 0.0, 1.0);
+        end;
+      end;
     tsDeparture:
       begin
         Elapsed := Min(Seconds - S.Tracks[ttDepartBefore],

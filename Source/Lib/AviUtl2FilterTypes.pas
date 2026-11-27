@@ -2,7 +2,7 @@
 
 // Copyright (c) 2026 VRAMの魔術師
 // SPDX-License-Identifier: GPL-3.0-only
-// SDK declarations: Copyright (c) 2025 Kenkun; see ThirdParty/LICENSE.AviUtl2-SDK.txt (MIT).
+// SDK declarations: Copyright (c) 2025 Kenkun; see LICENSES.md (MIT).
 
 // AviUtl2 フィルタープラグイン登録に必要な最小ABI定義。
 

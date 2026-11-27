@@ -21,7 +21,13 @@ const
   HIDE_NOT_EQUAL = 1; // FILTER_ITEM_HIDE_RULE::OPERATOR::NOT_EQUAL
   TIME_GROUPS: array[TTrainScene] of PWideChar = (
     '時間（秒）・到着', '時間（秒）・乗車', '時間（秒）・走行', '時間（秒）・降車', '時間（秒）・発車');
-  RUN_GROUP = '走行風景';
+  HIDE_GREATER = 2;
+  HIDE_LESS = 3;
+  SCENERY_GROUP = '風景';
+  // 並び順を変更しても、既存プロジェクトの背景の識別値は維持する。
+  SCENERY_ORDER: array[0..Ord(High(TTrainScenery))] of TTrainScenery =
+    (scTown, scResidential, scCountryside, scCoast);
+  SIDE_VIEW_ONLY: array[0..1] of TTrainTrack = (ttSpeed, ttZoom);
 
 var
   SceneItem, StyleItem, SceneryItem: TFILTER_ITEM_SELECT;
@@ -34,11 +40,12 @@ var
   Tracks: array[TTrainTrack] of TFILTER_ITEM_TRACK;
   Checks: array[TTrainLayer] of TFILTER_ITEM_CHECK;
   TimeGroup, TimeEnd: array[TTrainScene] of TFILTER_ITEM_GROUP;
-  LayerGroup, SizeGroup, RunGroup, ColorGroup: TFILTER_ITEM_GROUP;
-  LayerEnd, SizeEnd, RunEnd, ColorEnd: TFILTER_ITEM_GROUP;
+  LayerGroup, SizeGroup, SceneryGroup, ColorGroup: TFILTER_ITEM_GROUP;
+  LayerEnd, SizeEnd, SceneryEnd, ColorEnd: TFILTER_ITEM_GROUP;
   HideTime: array[TTrainScene] of TFILTER_ITEM_HIDE_RULE;
   HideLayer: array[TTrainLayer] of TFILTER_ITEM_HIDE_RULE;
-  HideRun: TFILTER_ITEM_HIDE_RULE;
+  HideBeforeSideView, HideAfterSideView: array[0..High(SIDE_VIEW_ONLY)] of TFILTER_ITEM_HIDE_RULE;
+  HidePole: TFILTER_ITEM_HIDE_RULE;
 
 procedure SetValue(Edit: PEDIT_SECTION; Obj: OBJECT_HANDLE; Effect, Name: PWideChar;
   const Value: string);
@@ -128,6 +135,7 @@ var
   S: TTrainSettings;
   Scene: TTrainScene;
   Layer: TTrainLayer;
+  I: Integer;
   procedure AddTracks(First, Last: TTrainTrack);
   var
     Track: TTrainTrack;
@@ -139,18 +147,23 @@ var
       AddTrack(Tracks[Track], D.Name, S.Tracks[Track], D.Minimum, D.Maximum, D.Step);
     end;
   end;
-  procedure HideOtherScenes(var Rule: TFILTER_ITEM_HIDE_RULE; Name: PWideChar; Visible: TTrainScene);
+  procedure HideByScene(var Rule: TFILTER_ITEM_HIDE_RULE; Name: PWideChar; Comparison: Integer; Scene: TTrainScene);
   begin
     AddAlwaysHideRule(Rule, Name);
     Rule.ConditionName := SceneItem.Name;
-    Rule.ConditionOperator := HIDE_NOT_EQUAL;
-    Rule.ConditionValue := Ord(Visible);
+    Rule.ConditionOperator := Comparison;
+    Rule.ConditionValue := Ord(Scene);
   end;
 begin
   S := DefaultTrainSettings;
   AddOptions(StyleOptions, STYLE_NAMES);
   AddOptions(SceneOptions, SCENE_NAMES);
-  AddOptions(SceneryOptions, SCENERY_NAMES);
+  for I := Low(SCENERY_ORDER) to High(SCENERY_ORDER) do
+  begin
+    SceneryOptions[I].Name := SCENERY_NAMES[SCENERY_ORDER[I]];
+    SceneryOptions[I].Value := Ord(SCENERY_ORDER[I]);
+  end;
+  SceneryOptions[High(SceneryOptions)].Name := nil;
   AddSelect(StyleItem, '列車プリセット', Ord(S.Style), @StyleOptions[0]);
   AddButton(StyleButton, '列車の配色を反映', ApplyStyle);
   AddSelect(SceneItem, 'シーンプリセット', Ord(S.Scene), @SceneOptions[0]);
@@ -166,11 +179,11 @@ begin
     AddTracks(SCENE_TIMES[Scene].First, SCENE_TIMES[Scene].Last);
     AddGroup(TimeEnd[Scene], '', 0);
   end;
-  AddGroup(RunGroup, RUN_GROUP, 0);
+  AddGroup(SceneryGroup, SCENERY_GROUP, 0);
   AddSelect(SceneryItem, '背景の種類', Ord(S.Scenery), @SceneryOptions[0]);
   AddTracks(ttSpeed, ttSeed);
   AddCheck(PoleItem, '手前の通過電柱', Ord(S.ForegroundPoles));
-  AddGroup(RunEnd, '', 0);
+  AddGroup(SceneryEnd, '', 0);
   AddGroup(ColorGroup, '車体の配色', 0);
   AddColor(BodyItem, '車体色', S.Colors.Body and 255,
     (S.Colors.Body shr 8) and 255, S.Colors.Body shr 16);
@@ -183,12 +196,17 @@ begin
 
   for Scene := Low(TTrainScene) to High(TTrainScene) do
   begin
-    HideOtherScenes(HideTime[Scene], TIME_GROUPS[Scene], Scene);
+    HideByScene(HideTime[Scene], TIME_GROUPS[Scene], HIDE_NOT_EQUAL, Scene);
     for Layer := Low(TTrainLayer) to High(TTrainLayer) do
       if Layer in SCENE_LAYERS[Scene] then
-        HideOtherScenes(HideLayer[Layer], LAYER_NAMES[Layer], Scene);
+        HideByScene(HideLayer[Layer], LAYER_NAMES[Layer], HIDE_NOT_EQUAL, Scene);
   end;
-  HideOtherScenes(HideRun, RUN_GROUP, tsRun);
+  for I := Low(SIDE_VIEW_ONLY) to High(SIDE_VIEW_ONLY) do
+  begin
+    HideByScene(HideBeforeSideView[I], Tracks[SIDE_VIEW_ONLY[I]].Name, HIDE_LESS, tsRun);
+    HideByScene(HideAfterSideView[I], Tracks[SIDE_VIEW_ONLY[I]].Name, HIDE_GREATER, tsExit);
+  end;
+  HideByScene(HidePole, PoleItem.Name, HIDE_NOT_EQUAL, tsRun);
 end;
 
 function ReadTrainSettings: TTrainSettings;

@@ -27,41 +27,110 @@ implementation
 uses System.Math, Winapi.D2D1;
 
 const
-  DOOR_L = 399;
-  DOOR_R = 881;
-  DOOR_T = 106;
-  DOOR_B = 592;
-  DOOR_W = DOOR_R - DOOR_L;
-  DOOR_H = DOOR_B - DOOR_T;
-  BOARD_L = 459;
-  BOARD_R = DESIGN_W - BOARD_L;
+  WIDE_BODY_H = 182;
+  WIDE_UNDERFRAME_H = 42;
+  WIDE_WHEEL_RADIUS = 17;
+  CAR_WINDOW_Y = 49;
+  CAR_WINDOW_H = 59;
+  CAR_DOOR_Y = 45;
+  CAR_DOOR_B = 169;
+  CAR_DOOR_H = CAR_DOOR_B - CAR_DOOR_Y;
+  CAR_DOOR_W = 78;
+  CAR_DOOR_LEAF_W = CAR_DOOR_W / 2 + 0.5;
+  CAR_GLASS_W = 23;
+  CAR_GLASS_H = 58;
+  CAR_GLASS_Y = CAR_DOOR_Y + 7;
+  CAR_GLASS_RADIUS = 4;
+  CAR_STRIPE_Y = 115;
+  CAR_STRIPE_H = 22;
+  RUN_CAR_SCALE = 2.8;
+  RECLINING_SEAT_W = 200;
+  RECLINING_SEAT_H = 270;
+
   BOARD_T = 148;
   BOARD_B = 653;
-  BOARD_W = BOARD_R - BOARD_L;
   BOARD_H = BOARD_B - BOARD_T;
+  BOARD_CAR_SCALE = BOARD_H / CAR_DOOR_H;
+  BOARD_W = CAR_DOOR_W * BOARD_CAR_SCALE;
+  BOARD_L = (DESIGN_W - BOARD_W) * 0.5;
+  BOARD_R = BOARD_L + BOARD_W;
   BOARD_SIDE_X = -55;
   BOARD_SIDE_Y = 172;
   BOARD_SIDE_W = 286;
   BOARD_SIDE_H = 271;
   BOARD_SIDE_RADIUS = 22;
-  RUN_WINDOW_X: array[0..2] of Single = (-134, 472, 1124);
-  RUN_WINDOW_W: array[0..2] of Single = (290, 336, 290);
-  RUN_WINDOW_Y = 248;
-  RUN_WINDOW_H = 178;
-  RUN_WINDOW_B = RUN_WINDOW_Y + RUN_WINDOW_H;
-  RUN_DOOR_W = 228;
-  RUN_DOOR_LEFT = 200;
-  RUN_BODY_L = -155;
-  RUN_BODY_R = 1435;
 
-function WindowRadius(Style: TTrainStyle): Single;
-begin
-  case Style of
-    trExpress: Result := 20;
-    trStreamlined: Result := 31;
-  else
-    Result := 12;
+type
+  TRailCarEnd = (ceMiddle, ceFront, ceRear);
+  TRailCarView = (cvWide, cvSide);
+  TTrainSideLayer = (tslCabin, tslBody, tslDoors);
+  TRailWindow = record
+    X, Width: Single;
   end;
+  TRailSideLayout = record
+    Windows: array[0..5] of TRailWindow;
+    Doors: array[0..2] of Integer;
+    WindowCount, DoorCount: Integer;
+    ViewCenterX: Single; // 走行・降車の画角中心。窓の寸法とは独立。
+  end;
+
+const
+  EXPRESS_LEFT_DOOR_X = 126;
+  EXPRESS_RIGHT_DOOR_X = 544;
+  // 扉際も窓同士と同じ間隔で空け、残りを3枚の窓に等分する。
+  EXPRESS_WINDOW_GAP = 16;
+  EXPRESS_WINDOW_X = EXPRESS_LEFT_DOOR_X + CAR_DOOR_W + EXPRESS_WINDOW_GAP;
+  EXPRESS_WINDOW_W = (EXPRESS_RIGHT_DOOR_X - EXPRESS_LEFT_DOOR_X - CAR_DOOR_W -
+    4 * EXPRESS_WINDOW_GAP) / 3;
+  EXPRESS_WINDOW_PITCH = EXPRESS_WINDOW_W + EXPRESS_WINDOW_GAP;
+  EXPRESS_RIGHT_WINDOW_X = EXPRESS_RIGHT_DOOR_X + CAR_DOOR_W + EXPRESS_WINDOW_GAP;
+  EXPRESS_END_WINDOW_X = EXPRESS_RIGHT_WINDOW_X + EXPRESS_WINDOW_PITCH;
+
+  // 最後の窓は中間車にだけある。先頭車・最後尾車では同じ位置が運転台になる。
+  COMMUTER_SIDE: TRailSideLayout = (
+    Windows: ((X: 167; Width: 63), (X: 246; Width: 63), (X: 431; Width: 121),
+      (X: 707; Width: 91), (X: 0; Width: 0), (X: 0; Width: 0));
+    Doors: (66, 329, 569); WindowCount: 4; DoorCount: 3; ViewCenterX: 491.5
+  );
+  EXPRESS_SIDE: TRailSideLayout = (
+    Windows: ((X: 25; Width: 77), (X: EXPRESS_WINDOW_X; Width: EXPRESS_WINDOW_W),
+      (X: EXPRESS_WINDOW_X + EXPRESS_WINDOW_PITCH; Width: EXPRESS_WINDOW_W),
+      (X: EXPRESS_WINDOW_X + 2 * EXPRESS_WINDOW_PITCH; Width: EXPRESS_WINDOW_W),
+      (X: EXPRESS_RIGHT_WINDOW_X; Width: EXPRESS_WINDOW_W),
+      (X: EXPRESS_END_WINDOW_X; Width: WIDE_CAR_LENGTH - 20 - EXPRESS_END_WINDOW_X));
+    Doors: (EXPRESS_LEFT_DOOR_X, EXPRESS_RIGHT_DOOR_X, 0); WindowCount: 6; DoorCount: 2;
+    ViewCenterX: 465
+  );
+
+function IsCommuter(Style: TTrainStyle): Boolean;
+begin
+  Result := Style in [trStainless, trPainted];
+end;
+
+function RailSide(Style: TTrainStyle): TRailSideLayout;
+begin
+  if IsCommuter(Style) then Exit(COMMUTER_SIDE);
+  Result := EXPRESS_SIDE;
+end;
+
+function DoorGlassX(LeafX: Single): Single;
+begin
+  Result := LeafX + (CAR_DOOR_LEAF_W - CAR_GLASS_W) * 0.5;
+end;
+
+function DoorGlassCutout(LeafX: Single): TD2D1RoundedRect;
+var
+  X: Single;
+begin
+  X := DoorGlassX(LeafX);
+  Result := D2D1RoundedRect(D2D1RectF(X, CAR_GLASS_Y, X + CAR_GLASS_W, CAR_GLASS_Y + CAR_GLASS_H),
+    CAR_GLASS_RADIUS, CAR_GLASS_RADIUS);
+end;
+
+function CabinSeatColor(const S: TTrainSettings): Cardinal;
+begin
+  if IsCommuter(S.Style) then Exit(Mix($294B44, S.Colors.Stripe, 0.34));
+  Result := Mix($364E96, S.Colors.Stripe, 0.17);
 end;
 
 procedure Skin(C: TTrainCanvas; const S: TTrainSettings; X, Y, W, H, Radius: Single);
@@ -90,28 +159,202 @@ begin
     Pt(X + W * 0.24, Y + H - 7), Pt(X + 8, Y + H - 7)], $AACBCB, 0.15);
 end;
 
-const
-  WIDE_BODY_H = 182;
-  WIDE_UNDERFRAME_H = 42;
-  WIDE_WHEEL_RADIUS = 17;
-  WIDE_SIDE_DOOR_W = 78;
-
-type
-  TRailCarEnd = (ceMiddle, ceFront, ceRear);
-
-procedure SmallSideDoors(C: TTrainCanvas; const S: TTrainSettings; X: Single);
-const
-  Y = 30;
-  H = WIDE_BODY_H - Y - 10;
+procedure DrawRecliningSeat(C: TTrainCanvas; X, Y, Scale: Single; Seat: Cardinal);
 var
-  Edge: Cardinal;
+  Panel, Frame: Cardinal;
+  Previous: TD2D1Matrix3x2F;
 begin
-  Edge := Shade(S.Colors.Body, 0.60);
-  C.BoxEdge(X, Y, WIDE_SIDE_DOOR_W, H, 5, 2.5, Edge);
-  C.Line(X + WIDE_SIDE_DOOR_W / 2, Y + 2, X + WIDE_SIDE_DOOR_W / 2, Y + H - 2, 2, Edge);
-  OpaqueWindow(C, X + 9, Y + 13, 22, 62, 5);
-  OpaqueWindow(C, X + 47, Y + 13, 22, 62, 5);
-  C.Box(X + 5, Y + H - 6, WIDE_SIDE_DOOR_W - 10, 4, 1, $718080);
+  Panel := Mix($345D89, Seat, 0.28);
+  Frame := Shade(Panel, 0.55);
+  Previous := C.ApplyTransform(TD2D1Matrix3x2F.Scale(Scale, Scale, Pt(0, 0)) *
+    TD2D1Matrix3x2F.Translation(X, Y));
+  try
+    C.Oval(128, 267, 67, 3, $26343A, 0.23);
+    // 奥側の背もたれと、座面の奥行き。
+    C.Polygon([Pt(34, 24), Pt(43, 8), Pt(78, 8), Pt(89, 22), Pt(99, 72),
+      Pt(119, 128), Pt(107, 148), Pt(69, 147), Pt(44, 91)], Shade(Seat, 0.74));
+    C.Polygon([Pt(48, 11), Pt(76, 11), Pt(84, 24), Pt(90, 51), Pt(59, 57)], $C88FA2);
+    C.GradientPolygon([Pt(93, 125), Pt(179, 119), Pt(190, 130), Pt(198, 180),
+      Pt(188, 208), Pt(70, 208), Pt(51, 173)], Pt(93, 124), Pt(125, 203),
+      Shade(Seat, 1.12), Seat, Shade(Seat, 0.72));
+    // 手前の背もたれの側面と、座面へ向かう傾斜。
+    C.Polygon([Pt(3, 21), Pt(9, 7), Pt(40, 0), Pt(54, 9), Pt(60, 73),
+      Pt(79, 118), Pt(111, 155), Pt(100, 179), Pt(59, 212), Pt(35, 184),
+      Pt(15, 138), Pt(4, 88)], Shade(Seat, 0.88));
+    C.Polygon([Pt(17, 18), Pt(41, 4), Pt(54, 9), Pt(60, 73), Pt(79, 118),
+      Pt(111, 155), Pt(99, 172), Pt(71, 159), Pt(46, 129), Pt(23, 77)], Shade(Seat, 1.24));
+    C.Polygon([Pt(17, 15), Pt(42, 3), Pt(54, 9), Pt(58, 52), Pt(31, 65), Pt(23, 55)], $DFA4AF);
+    // 肘掛けから足元まで続く手前の側板。
+    C.GradientPolygon([Pt(58, 181), Pt(194, 181), Pt(198, 190), Pt(198, 239),
+      Pt(169, 266), Pt(92, 266), Pt(58, 239)], Pt(128, 181), Pt(128, 266),
+      Shade(Panel, 1.23), Panel, Shade(Panel, 0.76));
+    C.StrokePath([Pt(61, 182), Pt(69, 169), Pt(87, 154), Pt(153, 154),
+      Pt(177, 164), Pt(192, 182)], 7, Frame);
+    C.Line(88, 154, 152, 154, 5, $9CBABC);
+    C.Line(63, 184, 193, 184, 3, Shade(Panel, 1.47));
+  finally
+    C.RestoreTransform(Previous);
+  end;
+end;
+
+procedure DrawRecliningSeatPair(C: TTrainCanvas; X, Y, Pitch, Scale: Single; Seat: Cardinal);
+begin
+  DrawRecliningSeat(C, X, Y, Scale, Seat);
+  DrawRecliningSeat(C, X + Pitch, Y, Scale, Seat);
+end;
+
+procedure DrawTiedCurtain(C: TTrainCanvas; X, Y, W, H: Single);
+var
+  I: Integer;
+begin
+  C.GradientPolygon([Pt(X, Y), Pt(X + W, Y), Pt(X + W * 0.75, Y + H * 0.26),
+    Pt(X + W * 0.45, Y + H * 0.55), Pt(X + W * 0.62, Y + H * 0.78),
+    Pt(X + W * 0.78, Y + H), Pt(X, Y + H)], Pt(X, Y), Pt(X + W, Y + H),
+    $D3C6A1, $A39372, $685E4C);
+  for I := 1 to 3 do
+    C.StrokePath([Pt(X + W * (I * 0.22), Y + H * 0.035),
+      Pt(X + W * (I * 0.115), Y + H * 0.55),
+      Pt(X + W * (I * 0.18), Y + H * 0.96)], Max(0.55, W * 0.037),
+      Shade($AA997B, 0.68 + I * 0.12));
+  C.Line(X, Y + H * 0.55, X + W * 0.47, Y + H * 0.55, Max(1.0, W * 0.095), $E0CF9E);
+end;
+
+procedure DrawWindowCurtains(C: TTrainCanvas; X, Y, W, H, CurtainW: Single);
+var
+  Previous: TD2D1Matrix3x2F;
+begin
+  DrawTiedCurtain(C, X, Y, CurtainW, H);
+  Previous := C.ApplyTransform(TD2D1Matrix3x2F.Scale(-1, 1, Pt(X + W * 0.5, 0)));
+  try
+    DrawTiedCurtain(C, X, Y, CurtainW, H);
+  finally
+    C.RestoreTransform(Previous);
+  end;
+end;
+
+procedure DrawLuggageRack(C: TTrainCanvas; X, Y, W, H: Single);
+var
+  Lip, Trim: Single;
+begin
+  Lip := H * 0.31;
+  Trim := Max(0.55, H * 0.075);
+  C.Box(X, Y, W, H - Lip, 0, $AAB8B4);
+  C.Box(X, Y, W, Trim, 0, $CFD8D0);
+  C.Box(X, Y + H - Lip, W, Lip, 0, $5D7473);
+  C.Box(X, Y + H - Lip, W, Trim, 0, $D6DED3);
+end;
+
+procedure DrawExpressSeatRows(C: TTrainCanvas; Left, Right: Single; Seat: Cardinal);
+const
+  SCALE = 0.235;
+  SEAT_WIDTH = RECLINING_SEAT_W * SCALE;
+  SEAT_PITCH = 62;
+  SEAT_TOP = 80;
+  DOOR_CLEARANCE = 16;
+  FIRST_SEAT_X = 18;
+  LAST_SEAT_LIMIT = WIDE_CAR_LENGTH - 8;
+
+  procedure DrawRow(StartX, EndX: Single);
+  var
+    X: Single;
+  begin
+    X := StartX;
+    while X + SEAT_WIDTH <= EndX do
+    begin
+      if (X < Right) and (X + SEAT_WIDTH > Left) then
+        DrawRecliningSeat(C, X, SEAT_TOP, SCALE, Seat);
+      X := X + SEAT_PITCH;
+    end;
+  end;
+
+begin
+  // 車内座標で座席を並べ、扉前は空ける。窓の幅は座席の座標にも寸法にも使わない。
+  DrawRow(FIRST_SEAT_X, EXPRESS_LEFT_DOOR_X - DOOR_CLEARANCE);
+  DrawRow(EXPRESS_LEFT_DOOR_X + CAR_DOOR_W + DOOR_CLEARANCE,
+    EXPRESS_RIGHT_DOOR_X - DOOR_CLEARANCE);
+  DrawRow(EXPRESS_RIGHT_DOOR_X + CAR_DOOR_W + DOOR_CLEARANCE, LAST_SEAT_LIMIT);
+end;
+
+procedure DrawExpressWindow(C: TTrainCanvas; X, Y, W, H: Single; Seat: Cardinal);
+begin
+  C.PushClip(X + 2, Y + 2, W - 4, H - 4);
+  try
+    C.Box(X + 2, Y + H * 0.72, W - 4, H * 0.28, 0, $A7AC9E);
+    C.Box(X + 2, Y + H * 0.71, W - 4, 1.7, 0, $D2D7BF);
+    DrawWindowCurtains(C, X + 3, Y + 4, W - 6, H - 7, Min(13.0, W * 0.18));
+    DrawLuggageRack(C, X + 4, Y + 3, W - 8, H * 0.105);
+    DrawExpressSeatRows(C, X + 2, X + W - 2, Seat);
+  finally
+    C.PopClip;
+  end;
+end;
+
+procedure DrawClearCarGlass(C: TTrainCanvas; X, Y, W, H, Radius: Single);
+var
+  OuterRadius: Single;
+begin
+  OuterRadius := 0;
+  if Radius > 0 then OuterRadius := Radius + 2.4;
+  C.Box(X, Y, W, H, Radius, $7DAEB8, 0.13);
+  C.BoxEdge(X, Y, W, H, Radius, 3.4, $263D49);
+  C.BoxEdge(X - 2.4, Y - 2.4, W + 4.8, H + 4.8, OuterRadius, 1.2, $A4B3B2, 0.83);
+  C.Line(X + Radius + 4, Y + 4.5, X + W - Radius - 4, Y + 4.5, 1.2, $D8EBE1, 0.41);
+  C.Polygon([Pt(X + W * 0.15, Y + 6), Pt(X + W * 0.29, Y + 6),
+    Pt(X + W * 0.1, Y + H - 6), Pt(X + W * 0.06, Y + H - 6)], $BFE4E6, 0.17);
+end;
+
+procedure DrawExteriorDoorLeaf(C: TTrainCanvas; const S: TTrainSettings; X: Single;
+  Left, TransparentGlass: Boolean);
+const
+  W = CAR_DOOR_LEAF_W;
+var
+  Edge, Paint: Cardinal;
+  GlassX, Seam: Single;
+  procedure DrawPanel;
+  begin
+    C.Panel(X, CAR_DOOR_Y, W, CAR_DOOR_H, 0, Shade(Paint, 1.25), Paint, Shade(Paint, 0.78));
+    Livery(C, S, X, CAR_STRIPE_Y, W, CAR_STRIPE_H);
+    C.Box(X + 2, CAR_DOOR_B - 8, W - 4, 5, 1, Shade(Paint, 0.74));
+    C.Box(Seam, CAR_DOOR_Y, 1.8, CAR_DOOR_H, 0, Edge);
+  end;
+begin
+  Paint := Mix(S.Colors.Body, S.Colors.Stripe, 0.12);
+  Edge := Shade(S.Colors.Body, 0.55);
+  GlassX := DoorGlassX(X);
+  Seam := X;
+  if Left then Seam := X + W - 1.8;
+  if TransparentGlass then
+  begin
+    C.PushCutouts(D2D1RectF(X, CAR_DOOR_Y, X + W, CAR_DOOR_B), [DoorGlassCutout(X)]);
+    try
+      DrawPanel;
+    finally
+      C.PopShapeClip;
+    end;
+  end
+  else
+  begin
+    DrawPanel;
+    C.Panel(GlassX, CAR_GLASS_Y, CAR_GLASS_W, CAR_GLASS_H, CAR_GLASS_RADIUS, $4D6D7A, $365560, $21353F);
+  end;
+  DrawClearCarGlass(C, GlassX, CAR_GLASS_Y, CAR_GLASS_W, CAR_GLASS_H, CAR_GLASS_RADIUS);
+  C.BoxEdge(X + 1, CAR_DOOR_Y + 1, W - 2, CAR_DOOR_H - 2, 0, 1, Edge, 0.65);
+end;
+
+procedure DrawExteriorDoor(C: TTrainCanvas; const S: TTrainSettings; X, Opening: Single;
+  TransparentGlass: Boolean);
+var
+  Stroke: Single;
+begin
+  if Opening >= 1 then Exit;
+  Stroke := Opening * (CAR_DOOR_W * 0.5 + 0.5);
+  C.PushClip(X, CAR_DOOR_Y, CAR_DOOR_W, CAR_DOOR_H);
+  try
+    DrawExteriorDoorLeaf(C, S, X - Stroke, True, TransparentGlass);
+    DrawExteriorDoorLeaf(C, S, X + CAR_DOOR_W * 0.5 + Stroke, False, TransparentGlass);
+  finally
+    C.PopClip;
+  end;
 end;
 
 procedure DrawBogie(C: TTrainCanvas; Center: Single);
@@ -142,7 +385,22 @@ begin
   C.Box(Center - 10, AXLE_Y - 10, 20, 2, 1, $303B3D);
 end;
 
-procedure DrawUnderframe(C: TTrainCanvas; CarEnd: TRailCarEnd; BodyColor: Cardinal);
+procedure DrawRailTruckCover(C: TTrainCanvas; Center: Single);
+const
+  Y = WIDE_BODY_H;
+  B = Y + (RUN_RAIL_Y - RUN_BODY_BOTTOM + RUN_TRAIN_RISE - 6) / RUN_CAR_SCALE;
+begin
+  C.Polygon([Pt(Center - 62, Y), Pt(Center + 62, Y), Pt(Center + 58, B - 5),
+    Pt(Center + 47, B), Pt(Center - 48, B), Pt(Center - 58, B - 5)], $293437);
+  C.Panel(Center - 54, Y + 8, 108, 15, 2, $576460, $3E4B49, $303A3C);
+  C.Box(Center - 52, Y + 9, 104, 2, 0.6, $6B7670);
+  C.Box(Center - 42, Y + 14, 24, 6, 1, $2C383B);
+  C.Box(Center + 18, Y + 14, 24, 6, 1, $2C383B);
+  C.Line(Center - 45, B - 3, Center + 45, B - 3, 1, $1C292D);
+end;
+
+procedure DrawUnderframe(C: TTrainCanvas; CarEnd: TRailCarEnd; BodyColor: Cardinal;
+  ShowWheels: Boolean);
 const
   Y = WIDE_BODY_H;
   W = WIDE_CAR_LENGTH;
@@ -151,8 +409,16 @@ var
 begin
   C.Box(16, Y - 5, W - 32, 12, 3, $36444A);
   C.Box(23, Y + 4, W - 46, 4, 1, $67746E);
-  DrawBogie(C, 157);
-  DrawBogie(C, W - 157);
+  if ShowWheels then
+  begin
+    DrawBogie(C, 157);
+    DrawBogie(C, W - 157);
+  end
+  else
+  begin
+    DrawRailTruckCover(C, 157);
+    DrawRailTruckCover(C, W - 157);
+  end;
   C.Panel(245, Y + 4, 111, 24, 3, $677670, $485753, $2B383E);
   for I := 0 to 5 do
     C.Box(253 + I * 15, Y + 11, 10, 1.8, 0, $2E3E42);
@@ -176,17 +442,43 @@ begin
   end;
 end;
 
-procedure DrawWideCar(C: TTrainCanvas; const S: TTrainSettings; CarEnd: TRailCarEnd);
+procedure DrawRailCar(C: TTrainCanvas; const S: TTrainSettings; CarEnd: TRailCarEnd;
+  View: TRailCarView);
 const
   W = WIDE_CAR_LENGTH;
   H = WIDE_BODY_H;
 var
-  Radius, Crown, Shoulder, Face: Single;
-  I: Integer;
+  Radius, CabRadius, CabDividerX, CabGlassX, Crown, Shoulder, Face: Single;
+  I, WindowCount, DoorX: Integer;
   BodyOutline: array[0..8] of TD2D1Point2F;
+  Cutouts: TArray<TD2D1RoundedRect>;
+  Side: TRailSideLayout;
+  Bounds: TD2D1RectF;
   Light, GlowColor: Cardinal;
+
+  procedure DrawSkin;
+  begin
+    Skin(C, S, 0, 0, W, H, 0);
+    C.Panel(0, 0, W, 25, 0, $617679, $B2BEBA, Shade(S.Colors.Body, 0.85));
+    C.Line(17, 23, W - 6, 23, 2.5, Shade(S.Colors.Body, 1.38));
+    Livery(C, S, 0, CAR_STRIPE_Y, W, CAR_STRIPE_H);
+    C.Box(0, H - 12, W, 6, 0, Shade(S.Colors.Body, 0.64), 0.70);
+  end;
+
 begin
-  DrawUnderframe(C, CarEnd, S.Colors.Body);
+  Side := RailSide(S.Style);
+  Radius := 12 * 0.49;
+  CabRadius := Radius;
+  CabDividerX := W - 118;
+  if not IsCommuter(S.Style) then
+  begin
+    Radius := 0;
+    CabRadius := 20 * 0.49;
+    CabDividerX := EXPRESS_RIGHT_WINDOW_X + EXPRESS_WINDOW_W + 6;
+  end;
+  WindowCount := Side.WindowCount;
+  if CarEnd <> ceMiddle then Dec(WindowCount);
+  DrawUnderframe(C, CarEnd, S.Colors.Body, View = cvWide);
   case S.Style of
     trStreamlined:
       begin
@@ -225,50 +517,75 @@ begin
   BodyOutline[6] := Pt(W - 7, H - 15);
   BodyOutline[7] := Pt(W - 18, H);
   BodyOutline[8] := Pt(8, H);
-  C.PushShapeClip(D2D1RectF(0, 0, W, H), BodyOutline);
+  Bounds := D2D1RectF(0, 0, W, H);
+  if View <> cvWide then
+  begin
+    SetLength(Cutouts, WindowCount + Side.DoorCount);
+    for I := 0 to WindowCount - 1 do
+      Cutouts[I] := D2D1RoundedRect(D2D1RectF(Side.Windows[I].X, CAR_WINDOW_Y,
+        Side.Windows[I].X + Side.Windows[I].Width, CAR_WINDOW_Y + CAR_WINDOW_H), Radius, Radius);
+    for I := 0 to Side.DoorCount - 1 do
+    begin
+      DoorX := Side.Doors[I];
+      Cutouts[WindowCount + I] := D2D1RoundedRect(D2D1RectF(DoorX, CAR_DOOR_Y,
+        DoorX + CAR_DOOR_W, CAR_DOOR_B), 0, 0);
+    end;
+  end;
+  C.PushShapeClip(Bounds, BodyOutline);
   try
-    Skin(C, S, 0, 0, W, H, 0);
-    C.Panel(0, 0, W, 25, 0, $617679, $B2BEBA, Shade(S.Colors.Body, 0.85));
-    C.Line(17, 23, W - 6, 23, 2.5, Shade(S.Colors.Body, 1.38));
-    Livery(C, S, 0, 115, W, 22);
-    C.Box(0, H - 12, W, 6, 0, Shade(S.Colors.Body, 0.64), 0.70);
-
-    Radius := WindowRadius(S.Style) * 0.49;
-    if S.Style in [trExpress, trStreamlined] then
+    if Length(Cutouts) > 0 then
     begin
-      SmallSideDoors(C, S, 24);
-      for I := 0 to 4 do
-        OpaqueWindow(C, 125 + I * 96, 49, 77, 56, Radius);
-      SmallSideDoors(C, S, 614);
+      C.PushCutouts(Bounds, Cutouts);
+      try
+        DrawSkin;
+      finally
+        C.PopShapeClip;
+      end;
     end
-    else
+    else DrawSkin;
+
+    for I := 0 to Side.DoorCount - 1 do
     begin
-      SmallSideDoors(C, S, 66);
-      SmallSideDoors(C, S, 329);
-      SmallSideDoors(C, S, 579);
-      OpaqueWindow(C, 167, 48, 63, 59, Radius);
-      OpaqueWindow(C, 246, 48, 63, 59, Radius);
-      OpaqueWindow(C, 428, 48, 59, 59, Radius);
-      OpaqueWindow(C, 505, 48, 56, 59, Radius);
+      DoorX := Side.Doors[I];
+      if View = cvWide then DrawExteriorDoor(C, S, DoorX, 0, False);
+      C.BoxEdge(DoorX - 1.2, CAR_DOOR_Y - 1.2, CAR_DOOR_W + 2.4, CAR_DOOR_H + 2.4,
+        2.4, 2.2, Shade(S.Colors.Body, 0.53));
+      C.Box(DoorX + 3, CAR_DOOR_B + 1, CAR_DOOR_W - 6, 3, 1, $718080);
     end;
 
-    if CarEnd = ceMiddle then
-      OpaqueWindow(C, W - 113, 49, 91, 56, Radius)
-    else
+    for I := 0 to WindowCount - 1 do
     begin
-      C.Line(W - 118, 34, W - 118, H - 12, 2, Shade(S.Colors.Body, 0.61));
+      if View = cvWide then
+      begin
+        C.Panel(Side.Windows[I].X, CAR_WINDOW_Y, Side.Windows[I].Width, CAR_WINDOW_H, Radius,
+          $4D6D7A, $365560, $21353F);
+        if not IsCommuter(S.Style) then
+        begin
+          DrawExpressWindow(C, Side.Windows[I].X, CAR_WINDOW_Y, Side.Windows[I].Width,
+            CAR_WINDOW_H, CabinSeatColor(S));
+          C.Box(Side.Windows[I].X, CAR_WINDOW_Y, Side.Windows[I].Width, CAR_WINDOW_H,
+            Radius, $233947, 0.41);
+        end;
+      end;
+      DrawClearCarGlass(C, Side.Windows[I].X, CAR_WINDOW_Y, Side.Windows[I].Width, CAR_WINDOW_H, Radius);
+    end;
+
+    if CarEnd <> ceMiddle then
+    begin
+      C.Line(CabDividerX, 34, CabDividerX, H - 12, 2, Shade(S.Colors.Body, 0.61));
       if S.Style = trStreamlined then
       begin
-        C.Polygon([Pt(W - 99, 30), Pt(W - 76, 30), Pt(W - 59, 55),
-          Pt(W - 59, 108), Pt(W - 94, 108)], $23343F);
-        C.GradientPolygon([Pt(W - 94, 35), Pt(W - 79, 35), Pt(W - 64, 57),
-          Pt(W - 64, 103), Pt(W - 89, 103)], Pt(W - 95, 35), Pt(W - 70, 103),
-          $4D6D7A, $365560, $21353F);
-        C.Polygon([Pt(W - 90, 39), Pt(W - 80, 39), Pt(W - 83, 96),
-          Pt(W - 87, 96)], $9DBEC0, 0.42);
+        CabGlassX := W - 81;
+        C.Polygon([Pt(CabGlassX, 38), Pt(CabGlassX + 23, 38), Pt(CabGlassX + 40, 55),
+          Pt(CabGlassX + 40, 108), Pt(CabGlassX + 5, 108)], $23343F);
+        C.GradientPolygon([Pt(CabGlassX + 5, 43), Pt(CabGlassX + 20, 43), Pt(CabGlassX + 35, 57),
+          Pt(CabGlassX + 35, 103), Pt(CabGlassX + 10, 103)], Pt(CabGlassX + 4, 43),
+          Pt(CabGlassX + 29, 103), $4D6D7A, $365560, $21353F);
+        C.Polygon([Pt(CabGlassX + 9, 47), Pt(CabGlassX + 19, 47), Pt(CabGlassX + 16, 96),
+          Pt(CabGlassX + 12, 96)], $9DBEC0, 0.42);
       end
       else
-        OpaqueWindow(C, W - 78, 35, 30, 74, Radius);
+        OpaqueWindow(C, W - 78, 35, 30, 74, CabRadius);
       if CarEnd = ceRear then
       begin
         Light := $B74E48;
@@ -286,6 +603,13 @@ begin
   finally
     C.PopShapeClip;
   end;
+end;
+
+procedure DrawRailCoupling(C: TTrainCanvas; X, Y: Single);
+begin
+  C.Box(X - 10, Y + 27, 20, WIDE_BODY_H - 36, 2, $2F3A3E);
+  C.Line(X, Y + 34, X, Y + WIDE_BODY_H - 14, 2, $65716E);
+  C.Box(X - 15, Y + WIDE_BODY_H + 3, 30, 10, 2, $29363E);
 end;
 
 procedure DrawWideTrain(C: TTrainCanvas; const S: TTrainSettings; Shift: Single;
@@ -312,9 +636,7 @@ begin
     begin
       JoinX := -Car * WIDE_CAR_LENGTH;
       if (JoinX < Left - 15) or (JoinX > Right + 15) then Continue;
-      C.Box(JoinX - 10, Y + 27, 20, WIDE_BODY_H - 36, 2, $2F3A3E);
-      C.Line(JoinX, Y + 34, JoinX, Y + WIDE_BODY_H - 14, 2, $65716E);
-      C.Box(JoinX - 15, Y + WIDE_BODY_H + 3, 30, 10, 2, $29363E);
+      DrawRailCoupling(C, JoinX, Y);
     end;
     for Car := WIDE_CAR_COUNT - 1 downto 0 do
     begin
@@ -330,7 +652,7 @@ begin
           TD2D1Matrix3x2F.Translation(X + WIDE_CAR_LENGTH, Y);
       Previous := C.ApplyTransform(Transform);
       try
-        DrawWideCar(C, S, CarEnd);
+        DrawRailCar(C, S, CarEnd, cvWide);
       finally
         C.RestoreTransform(Previous);
       end;
@@ -340,46 +662,31 @@ begin
   end;
 end;
 
-procedure DoorLeaf(C: TTrainCanvas; const S: TTrainSettings; X: Single; Left: Boolean);
+function ApplyTrainSideView(C: TTrainCanvas; const S: TTrainSettings;
+  const Side: TRailSideLayout): TD2D1Matrix3x2F;
+const
+  Y = RUN_BODY_BOTTOM - WIDE_BODY_H * RUN_CAR_SCALE;
 var
-  W, Seam, GlassX, Radius: Single;
-  Color, Edge: Cardinal;
+  Zoom: Single;
 begin
-  W := DOOR_W / 2 + 1;
-  Color := S.Colors.Body;
-  Edge := Shade(Color, 0.58);
-  GlassX := X + 29;
-  Radius := WindowRadius(S.Style) * 0.65;
-  C.Panel(X, DOOR_T, W, 57, 0, Shade(Color, 0.81), Color, Shade(Color, 1.14));
-  C.Panel(X, DOOR_T + 247, W, DOOR_H - 247, 0,
-    Shade(Color, 1.15), Color, Shade(Color, 0.77));
-  C.Box(X, DOOR_T + 57, 29, 190, 0, Color);
-  C.Box(X + W - 29, DOOR_T + 57, 29, 190, 0, Color);
-  C.Box(GlassX, DOOR_T + 57, W - 58, 190, 0, $335764, 0.50);
-  C.BoxEdge(GlassX, DOOR_T + 57, W - 58, 190, Radius, 7, $2A3C44);
-  C.Box(GlassX + 9, DOOR_T + 66, W - 76, 4, 2, $E4EBCE, 0.50);
-  C.Polygon([Pt(GlassX + 30, DOOR_T + 74), Pt(GlassX + 66, DOOR_T + 74),
-    Pt(GlassX + 22, DOOR_T + 230), Pt(GlassX + 11, DOOR_T + 230)], $E2ECE1, 0.15);
-  Livery(C, S, X, DOOR_T + 265, W, 43);
-  C.Box(X + 10, DOOR_B - 29, W - 20, 17, 2, Shade(Color, 0.68));
-  Seam := X;
-  if Left then Seam := X + W - 5;
-  C.Box(Seam, DOOR_T, 5, DOOR_H, 0, $26363C);
-  C.BoxEdge(X + 2, DOOR_T + 3, W - 4, DOOR_H - 7, 2, 2, Edge);
+  Zoom := S.Tracks[ttZoom] / 100;
+  Result := C.ApplyTransform(TD2D1Matrix3x2F.Scale(RUN_CAR_SCALE, RUN_CAR_SCALE, Pt(0, 0)) *
+    TD2D1Matrix3x2F.Translation(DESIGN_W * 0.5 - Side.ViewCenterX * RUN_CAR_SCALE, Y - RUN_TRAIN_RISE) *
+    TD2D1Matrix3x2F.Scale(Zoom, Zoom, Pt(DESIGN_W * 0.5, DESIGN_H * 0.5)));
 end;
 
 procedure BoardDoorLeaf(C: TTrainCanvas; const S: TTrainSettings; X: Single; Left: Boolean);
 const
   W = BOARD_W / 2 + 1;
-  GLASS_Y = BOARD_T + 25;
-  GLASS_W = W - 54;
-  GLASS_H = 254;
-  GLASS_RADIUS = 22;
+  GLASS_Y = BOARD_T + (CAR_GLASS_Y - CAR_DOOR_Y) * BOARD_CAR_SCALE;
+  GLASS_W = CAR_GLASS_W * BOARD_CAR_SCALE;
+  GLASS_H = CAR_GLASS_H * BOARD_CAR_SCALE;
+  GLASS_RADIUS = CAR_GLASS_RADIUS * BOARD_CAR_SCALE;
 var
   GlassX, Seam, OuterEdge: Single;
   Paint: Cardinal;
 begin
-  GlassX := X + 27;
+  GlassX := X + (W - GLASS_W) * 0.5;
   Paint := Mix($E2E5E1, S.Colors.Body, 0.26);
   if Left then
   begin
@@ -411,45 +718,13 @@ begin
   C.BoxEdge(GlassX + 5, GLASS_Y + 5, GLASS_W - 10, GLASS_H - 10, GLASS_RADIUS - 5,
     2, $768F91, 0.84);
   C.Line(GlassX + 22, GLASS_Y + 10, GlassX + GLASS_W - 23, GLASS_Y + 10, 2.5, $EAF6EF, 0.68);
-  C.Polygon([Pt(GlassX + 25, GLASS_Y + 14), Pt(GlassX + 49, GLASS_Y + 14),
-    Pt(GlassX + 26, GLASS_Y + GLASS_H - 18), Pt(GlassX + 13, GLASS_Y + GLASS_H - 32)],
-    $E0F6F1, 0.20);
-  C.Box(GlassX + GLASS_W - 25, GLASS_Y + GLASS_H - 31, 12, 17, 3, $E2EBD4, 0.78);
-end;
-
-procedure DrawSlidingDoors(C: TTrainCanvas; const S: TTrainSettings; Opening: Single;
-  Inside: Boolean);
-type
-  TDoorPainter = procedure(C: TTrainCanvas; const S: TTrainSettings; X: Single; Left: Boolean);
-var
-  X, Y, W, H, Stroke: Single;
-  PaintDoor: TDoorPainter;
-begin
-  if Opening >= 1 then Exit;
-  if Inside then
-  begin
-    X := BOARD_L;
-    Y := BOARD_T;
-    W := BOARD_W;
-    H := BOARD_H;
-    PaintDoor := BoardDoorLeaf;
-  end
+  if IsCommuter(S.Style) then
+    C.Box(GlassX + 19, GLASS_Y + 14, 24, GLASS_H - 32, 1, $E0F6F1, 0.20)
   else
-  begin
-    X := DOOR_L;
-    Y := DOOR_T;
-    W := DOOR_W;
-    H := DOOR_H;
-    PaintDoor := DoorLeaf;
-  end;
-  Stroke := Opening * (W * 0.5 + 1);
-  C.PushClip(X, Y, W, H);
-  try
-    PaintDoor(C, S, X - Stroke, True);
-    PaintDoor(C, S, X + W * 0.5 + Stroke, False);
-  finally
-    C.PopClip;
-  end;
+    C.Polygon([Pt(GlassX + 25, GLASS_Y + 14), Pt(GlassX + 49, GLASS_Y + 14),
+      Pt(GlassX + 26, GLASS_Y + GLASS_H - 18), Pt(GlassX + 13, GLASS_Y + GLASS_H - 32)],
+      $E0F6F1, 0.20);
+  C.Box(GlassX + GLASS_W - 25, GLASS_Y + GLASS_H - 31, 12, 17, 3, $E2EBD4, 0.78);
 end;
 
 procedure DrawBoardFloor(C: TTrainCanvas);
@@ -457,19 +732,17 @@ var
   X, Y: Integer;
 begin
   C.Panel(0, BOARD_B, DESIGN_W, DESIGN_H - BOARD_B, 0, $647173, $39474C, $26343A);
-  C.Polygon([Pt(BOARD_L - 12, BOARD_B + 8), Pt(BOARD_R + 12, BOARD_B + 8),
-    Pt(BOARD_R + 105, DESIGN_H - 5), Pt(BOARD_L - 105, DESIGN_H - 5)], $8D9A98, 0.68);
+  C.Box(BOARD_L - 12, BOARD_B + 8, BOARD_W + 24, DESIGN_H - BOARD_B - 13, 0, $8D9A98, 0.68);
   C.Metal(BOARD_L - 9, BOARD_B, BOARD_W + 18, 15, 2, $B3BCB4);
   C.Box(BOARD_L - 9, BOARD_B + 9, BOARD_W + 18, 4, 0, $EBC469);
   C.Line(0, BOARD_B + 24, BOARD_L - 45, BOARD_B + 24, 1.5, $6F8182, 0.75);
   C.Line(BOARD_R + 45, BOARD_B + 24, DESIGN_W, BOARD_B + 24, 1.5, $6F8182, 0.75);
   for Y := 0 to 7 do
-    for X := -20 - Y to 20 + Y do
-      C.Box(DESIGN_W / 2 + X * 9 + (Y mod 2) * 3, BOARD_B + 20 + Y * 5,
-        2.7, 1.6, 0.5, $3B4A4D, 0.65);
+    for X := -18 to 18 do
+      C.Box(DESIGN_W / 2 + X * 9, BOARD_B + 20 + Y * 5, 2.7, 1.6, 0.5, $3B4A4D, 0.65);
 end;
 
-procedure DrawBoardSide(C: TTrainCanvas; Seat: Cardinal);
+procedure DrawBoardSideGlass(C: TTrainCanvas; VerticalReflection: Boolean);
 begin
   // 側窓は後ろのホームが透ける。片側の形を反転し、反対側にも同じ構造を描く。
   C.Box(BOARD_SIDE_X, BOARD_SIDE_Y, BOARD_SIDE_W, BOARD_SIDE_H, BOARD_SIDE_RADIUS, $8BBFC5, 0.14);
@@ -478,20 +751,37 @@ begin
     BOARD_SIDE_RADIUS + 8, 4, $A3B0AC);
   C.BoxEdge(BOARD_SIDE_X + 6, BOARD_SIDE_Y + 6, BOARD_SIDE_W - 12, BOARD_SIDE_H - 12,
     BOARD_SIDE_RADIUS - 6, 2, $C5D6D0, 0.78);
-  C.Polygon([Pt(47, BOARD_SIDE_Y + 13), Pt(94, BOARD_SIDE_Y + 13),
-    Pt(33, BOARD_SIDE_Y + BOARD_SIDE_H - 13), Pt(10, BOARD_SIDE_Y + BOARD_SIDE_H - 21)],
-    $DFEFEA, 0.19);
+  if VerticalReflection then
+  begin
+    C.Box(29, BOARD_SIDE_Y + 13, 40, BOARD_SIDE_H - 26, 1, $DFEFEA, 0.19);
+    C.Box(80, BOARD_SIDE_Y + 13, 8, BOARD_SIDE_H - 26, 1, $DFEFEA, 0.10);
+  end
+  else
+    C.Polygon([Pt(47, BOARD_SIDE_Y + 13), Pt(94, BOARD_SIDE_Y + 13),
+      Pt(33, BOARD_SIDE_Y + BOARD_SIDE_H - 13), Pt(10, BOARD_SIDE_Y + BOARD_SIDE_H - 21)],
+      $DFEFEA, 0.19);
   C.Line(3, BOARD_SIDE_Y + BOARD_SIDE_H + 7, 240, BOARD_SIDE_Y + BOARD_SIDE_H + 7,
     4, $E0E5DA);
+end;
 
+procedure DrawBoardSide(C: TTrainCanvas; Seat: Cardinal);
+const
+  PARTITION_X = 358;
+  PARTITION_TOP = 350;
+  PARTITION_W = 44;
+  PARTITION_H = BOARD_B - 5 - PARTITION_TOP;
+  POLE_X = 225;
+  HANDLE_X = 429;
+begin
+  DrawBoardSideGlass(C, True);
   C.Panel(269, 221, 132, 96, 4, $DCE2DD, $A2B4AC, $819790);
   C.BoxEdge(269, 221, 132, 96, 4, 3, $7F908A);
   C.Box(279, 233, 111, 72, 2, $A7B8AF);
-  C.Polygon([Pt(287, 236), Pt(320, 236), Pt(309, 300), Pt(288, 300)], $D9E3D7, 0.54);
+  C.Box(287, 236, 25, 64, 1, $D9E3D7, 0.54);
   C.Box(328, 250, 49, 4, 1, $D4DFD5);
   C.Box(328, 262, 35, 3, 1, $D4DFD5);
 
-  // ロングシートと丸みのある袖仕切り。手前側の支柱と座席の脚を別の材質で描く。
+  // ロングシートと足元の金属板。
   C.Metal(-16, 600, 384, 50, 4, $869592);
   C.Panel(-22, 444, 385, 131, 18, Shade(Seat, 1.27), Seat, Shade(Seat, 0.51));
   C.Line(0, 453, 310, 453, 2, Shade(Seat, 1.19));
@@ -499,29 +789,39 @@ begin
   C.Line(228, 460, 228, 558, 2, Shade(Seat, 0.72));
   C.Panel(-23, 553, 387, 79, 21, Shade(Seat, 1.38), Seat, Shade(Seat, 0.58));
   C.Line(0, 614, 290, 614, 2, Shade(Seat, 0.63));
-  C.Polygon([Pt(249, 616), Pt(255, 564), Pt(267, 502), Pt(285, 447),
-    Pt(310, 398), Pt(337, 371), Pt(365, 356), Pt(398, 350), Pt(403, 607),
-    Pt(386, 624), Pt(349, 639), Pt(308, 648), Pt(276, 646), Pt(258, 636)], $344248);
-  C.GradientPolygon([Pt(259, 615), Pt(269, 564), Pt(280, 508), Pt(296, 456),
-    Pt(320, 407), Pt(345, 381), Pt(371, 368), Pt(394, 363), Pt(397, 604),
-    Pt(380, 619), Pt(346, 632), Pt(305, 640), Pt(278, 639), Pt(265, 629)],
-    Pt(272, 388), Pt(398, 642), $F2F0E4, $D3DCD7, $A6B2AC);
-  C.StrokePath([Pt(266, 623), Pt(273, 572), Pt(289, 508), Pt(307, 464),
-    Pt(330, 418), Pt(355, 393)], 2, $EBEDE4);
+  // 細長い袖仕切りと、取付部まで同じ位置で伸びる手すり。
+  C.Box(PARTITION_X, PARTITION_TOP, PARTITION_W, PARTITION_H, 0, $344248);
+  C.Panel(PARTITION_X + 5, PARTITION_TOP + 5, PARTITION_W - 10, PARTITION_H - 10,
+    0, $F2F0E4, $D3DCD7, $A6B2AC);
+  C.Box(PARTITION_X + 7, PARTITION_TOP + 7, 2, PARTITION_H - 14, 0, $EBEDE4);
 
-  C.StrokePath([Pt(207, 157), Pt(220, 166), Pt(229, 181), Pt(233, 204),
-    Pt(233, 485), Pt(236, 503), Pt(246, 517), Pt(260, 521), Pt(273, 521)],
-    15, $667573);
-  C.StrokePath([Pt(207, 155), Pt(220, 164), Pt(228, 180), Pt(231, 202),
-    Pt(231, 485), Pt(234, 499), Pt(245, 513), Pt(261, 518), Pt(273, 518)],
-    8, $BDC8C0);
-  C.StrokePath([Pt(209, 159), Pt(220, 168), Pt(229, 188), Pt(232, 215),
-    Pt(232, 471)], 12, $C99440);
-  C.StrokePath([Pt(211, 158), Pt(222, 174), Pt(230, 200), Pt(230, 464)], 4, $F9CA6E);
-  C.StrokePath([Pt(427, 330), Pt(435, 343), Pt(438, 359), Pt(438, 492), Pt(430, 501)],
-    10, $A6783D);
-  C.StrokePath([Pt(427, 329), Pt(433, 344), Pt(435, 365), Pt(435, 493), Pt(429, 498)],
-    5, $F3C670);
+  C.Box(POLE_X, BOARD_T, 16, BOARD_H, 0, $607675);
+  C.Box(POLE_X + 3, BOARD_T + 8, 10, BOARD_H - 16, 0, $C4D0CB);
+  C.Box(POLE_X + 1, BOARD_T + 15, 14, 328, 0, $C99440);
+  C.Box(POLE_X + 3, BOARD_T + 15, 3, 328, 0, $F9CA6E);
+
+  C.Box(HANDLE_X, 329, 12, 172, 0, $A6783D);
+  C.Box(HANDLE_X + 2, 333, 8, 164, 0, $E0AC53);
+  C.Box(HANDLE_X + 3, 333, 2, 164, 0, $FFD57C);
+end;
+
+procedure DrawBoardExpressSide(C: TTrainCanvas);
+begin
+  DrawBoardSideGlass(C, False);
+  C.PushClip(BOARD_SIDE_X + 7, BOARD_SIDE_Y + 6, BOARD_SIDE_W - 14, BOARD_SIDE_H - 12);
+  try
+    DrawWindowCurtains(C, BOARD_SIDE_X + 8, BOARD_SIDE_Y + 8,
+      BOARD_SIDE_W - 16, BOARD_SIDE_H - 16, 59);
+  finally
+    C.PopClip;
+  end;
+  DrawLuggageRack(C, -22, 100, 418, 36);
+  C.Line(67, 93, 67, 104, 3.5, $81918E);
+  C.Line(315, 93, 315, 104, 3.5, $81918E);
+  C.Metal(-14, BOARD_B - 24, 398, 23, 3, $919D98);
+  C.StrokePath([Pt(BOARD_L - 38, 341), Pt(BOARD_L - 35, 352),
+    Pt(BOARD_L - 35, 456), Pt(BOARD_L - 38, 467)], 8, $7A8C89);
+  C.Line(BOARD_L - 36, 359, BOARD_L - 36, 452, 2.2, $E4E5D9);
 end;
 
 procedure DrawBoardDisplays(C: TTrainCanvas; Stripe: Cardinal);
@@ -529,9 +829,9 @@ var
   I: Integer;
 begin
   C.Panel(BOARD_L - 26, 27, BOARD_W + 52, BOARD_T - 30, 8, $5F6F70, $414F53, $2C3B40);
-  C.Box(BOARD_L - 7, 48, 167, 70, 5, $162B33);
-  C.Box(BOARD_L - 2, 54, 157, 57, 3, $E5ECE3);
-  C.Box(BOARD_L - 2, 54, 157, 14, 2, Mix($3B716F, Stripe, 0.40));
+  C.Box(BOARD_L - 7, 48, 155, 70, 5, $162B33);
+  C.Box(BOARD_L - 2, 54, 145, 57, 3, $E5ECE3);
+  C.Box(BOARD_L - 2, 54, 145, 14, 2, Mix($3B716F, Stripe, 0.40));
   C.Box(BOARD_L + 14, 76, 67, 4, 1.5, $53747B);
   C.Box(BOARD_L + 14, 93, 118, 2, 1, $A0B7B1);
   for I := 0 to 4 do
@@ -539,8 +839,8 @@ begin
     C.Oval(BOARD_L + 17 + I * 27, 94, 3.5, 3.5, $4E7772);
     C.Oval(BOARD_L + 17 + I * 27, 94, 1.8, 1.8, $DAE9DD);
   end;
-  C.Box(BOARD_R - 160, 48, 167, 70, 5, $172C35);
-  C.Panel(BOARD_R - 155, 53, 157, 59, 3, $769CA7, $456878, $35585E);
+  C.Box(BOARD_R - 148, 48, 155, 70, 5, $172C35);
+  C.Panel(BOARD_R - 143, 53, 145, 59, 3, $769CA7, $456878, $35585E);
   C.Polygon([Pt(BOARD_R - 151, 108), Pt(BOARD_R - 112, 82), Pt(BOARD_R - 91, 96),
     Pt(BOARD_R - 61, 69), Pt(BOARD_R - 3, 109)], $A4BFB5, 0.83);
   C.Box(BOARD_R - 142, 59, 78, 3, 1, $E2EAE0, 0.87);
@@ -569,12 +869,26 @@ begin
 end;
 
 procedure DrawBoardCabin(C: TTrainCanvas; const S: TTrainSettings);
+const
+  SEAT_SCALE = 1.26;
+  SEAT_SPACING = 68;
+  DOOR_CLEARANCE = 46;
+  SEAT_WIDTH = RECLINING_SEAT_W * SEAT_SCALE;
+  SEAT_PITCH = SEAT_WIDTH + SEAT_SPACING;
+  SEAT_TOP = DESIGN_H - 22 - RECLINING_SEAT_H * SEAT_SCALE;
 var
   Seat, Wall: Cardinal;
   Holes: array[0..2] of TD2D1RoundedRect;
   Previous: TD2D1Matrix3x2F;
+  Commuter: Boolean;
+  procedure DrawSide;
+  begin
+    if Commuter then DrawBoardSide(C, Seat)
+    else DrawBoardExpressSide(C);
+  end;
 begin
-  Seat := Mix($294B44, S.Colors.Stripe, 0.34);
+  Commuter := IsCommuter(S.Style);
+  Seat := CabinSeatColor(S);
   Wall := Mix($DADED7, S.Colors.Body, 0.22);
   C.Panel(0, 0, DESIGN_W, BOARD_T, 0, $FBFAF1, $EFEEE5, $D3DDD7);
   C.Box(36, 23, 286, 9, 3, $FFFCF1);
@@ -593,10 +907,10 @@ begin
   finally
     C.PopShapeClip;
   end;
-  DrawBoardSide(C, Seat);
+  DrawSide;
   Previous := C.ApplyTransform(TD2D1Matrix3x2F.Scale(-1, 1, Pt(DESIGN_W / 2, 0)));
   try
-    DrawBoardSide(C, Seat);
+    DrawSide;
   finally
     C.RestoreTransform(Previous);
   end;
@@ -605,199 +919,209 @@ begin
   C.Box(BOARD_L - 10, BOARD_T, 6, BOARD_H - 43, 1, $E2B65D);
   C.Box(BOARD_R + 4, BOARD_T, 6, BOARD_H - 43, 1, $E2B65D);
   C.Line(BOARD_L - 16, BOARD_T + 1, BOARD_R + 16, BOARD_T + 1, 5, $304348);
-  DrawBoardDisplays(C, S.Colors.Stripe);
-  DrawBoardStraps(C);
+  if Commuter then
+  begin
+    DrawBoardDisplays(C, S.Colors.Stripe);
+    DrawBoardStraps(C);
+  end
+  else
+  begin
+    C.Box(BOARD_L + 37, 66, BOARD_W - 74, 6, 3, $FAF2D8);
+    DrawRecliningSeatPair(C, BOARD_L - DOOR_CLEARANCE - SEAT_WIDTH - SEAT_PITCH,
+      SEAT_TOP, SEAT_PITCH, SEAT_SCALE, Seat);
+    DrawRecliningSeatPair(C, BOARD_R + DOOR_CLEARANCE, SEAT_TOP, SEAT_PITCH, SEAT_SCALE, Seat);
+  end;
 end;
 
-procedure DrawExitRear(C: TTrainCanvas; const S: TTrainSettings);
+
+procedure DrawCarDoorInterior(C: TTrainCanvas; DoorX: Single; Reclining: Boolean);
 var
-  I: Integer;
+  Leaf: Integer;
   X: Single;
 begin
-  C.Panel(0, 0, DESIGN_W, DESIGN_H, 0, $617F8B, $A1B9B5, $536A69);
-  C.Box(0, 22, DESIGN_W, 603, 24, $283E46);
-  Skin(C, S, 0, 41, DESIGN_W, 578, 12);
-  Livery(C, S, 0, DOOR_T + 265, DESIGN_W, 43);
-  C.Box(0, 536, DESIGN_W, 3, 0, Shade(S.Colors.Body, 0.67), 0.7);
-  C.Box(DOOR_L - 16, DOOR_T - 13, DOOR_W + 32, DOOR_H + 26, 12, $30434A);
-  C.PushClip(DOOR_L, DOOR_T, DOOR_W, DOOR_H);
-  try
-    C.Panel(DOOR_L, DOOR_T, DOOR_W, DOOR_H, 0, $A5997F, $CED0B7, $5F7774);
-    C.Polygon([Pt(DOOR_L, DOOR_T), Pt(DOOR_R, DOOR_T), Pt(775, 170),
-      Pt(505, 170)], $E1D6B4);
-    C.Box(537, 139, 206, 7, 3, $FFF0BC);
-    OpaqueWindow(C, 513, 211, 254, 153, 13);
-    C.Panel(438, 351, 93, 151, 14, $79958F, $4E7973, $2C534F);
-    C.Panel(749, 351, 93, 151, 14, $79958F, $4E7973, $2C534F);
-    C.Polygon([Pt(DOOR_L, DOOR_B), Pt(DOOR_R, DOOR_B), Pt(777, 469),
-      Pt(503, 469)], $617F81);
-    for I := -3 to 3 do C.Line(640 + I * 70, DOOR_B, 640 + I * 43, 474, 2, $ACB9AD, 0.6);
-    C.Box(DOOR_L, DOOR_B - 7, DOOR_W, 7, 0, $D3C08A);
-    C.Box(DOOR_L, DOOR_T, 8, DOOR_H, 0, $25343D);
-    C.Box(DOOR_R - 8, DOOR_T, 8, DOOR_H, 0, $25343D);
-  finally
-    C.PopClip;
-  end;
-  for I := 0 to 1 do
+  for Leaf := 0 to 1 do
   begin
-    X := 56 + I * 877;
-    OpaqueWindow(C, X, 166, 290, 190, WindowRadius(S.Style));
-    C.Box(X + 6, 433, 278, 6, 2, Shade(S.Colors.Body, 0.7));
-  end;
-  C.Panel(0, 612, DESIGN_W, 108, 0, $B9B4A7, $92948A, $707D7D);
-  C.Box(0, 618, DESIGN_W, 25, 0, $C8A962);
-  for I := 0 to 91 do C.Oval(7 + I * 14, 627 + (I mod 2) * 8, 3, 2, $F2D28B);
-  for I := -8 to 8 do C.Line(640 + I * 90, 654, 640 + I * 133, 720, 2, $626D6D, 0.72);
-end;
-
-procedure DrawRunCabin(C: TTrainCanvas; const S: TTrainSettings);
-const
-  SEAT_TOP = RUN_WINDOW_B - 78;
-var
-  I: Integer;
-  X, W: Single;
-  Seat: Cardinal;
-begin
-  Seat := Mix($466F74, S.Colors.Stripe, 0.55);
-  for I := Low(RUN_WINDOW_X) to High(RUN_WINDOW_X) do
-  begin
-    X := RUN_WINDOW_X[I];
-    W := RUN_WINDOW_W[I];
-    C.PushClip(X + 5, RUN_WINDOW_Y + 5, W - 10, RUN_WINDOW_H - 10);
+    X := DoorGlassX(DoorX + Leaf * CAR_DOOR_W * 0.5);
+    C.PushClip(X + 1, CAR_GLASS_Y + 1, CAR_GLASS_W - 2, CAR_GLASS_H - 2);
     try
-      C.Box(X + 4, RUN_WINDOW_Y + 3, W - 8, 21, 3, $AAB3A7);
-      C.Box(X + 28, RUN_WINDOW_Y + 9, W - 56, 4, 2, $FFF1C2, 0.81);
-      C.Box(X + 3, RUN_WINDOW_B - 68, W - 6, 68, 6, $7D9691);
-      C.Box(X + 4, RUN_WINDOW_B - 68, W - 8, 5, 1, $C5CEB4);
-      C.Panel(X + 15, RUN_WINDOW_B - 45, W - 30, 62, 15, Shade(Seat, 1.27), Seat, Shade(Seat, 0.64));
-      C.Panel(X + 15, SEAT_TOP, W * 0.22, 97, 13, Shade(Seat, 1.16), Seat, Shade(Seat, 0.68));
-      C.Panel(X + W * 0.78 - 15, SEAT_TOP, W * 0.22, 97, 13,
-        Shade(Seat, 1.16), Seat, Shade(Seat, 0.68));
-      C.Box(X + 23, SEAT_TOP + 9, W * 0.16, 3, 1.5, Shade(Seat, 1.38), 0.75);
-      C.Box(X + W * 0.84 - 23, SEAT_TOP + 9, W * 0.16, 3, 1.5, Shade(Seat, 1.38), 0.75);
-      C.Line(X + W * 0.5, RUN_WINDOW_B - 39, X + W * 0.5, RUN_WINDOW_B - 3, 2, Shade(Seat, 0.55));
+      C.Box(X, CAR_GLASS_Y, CAR_GLASS_W, 8, 0, $C3CBC0);
+      C.Box(X + 4, CAR_GLASS_Y + 3, CAR_GLASS_W - 8, 1.5, 0.5, $FFF1C5);
+      C.Panel(X, CAR_GLASS_Y + 44, CAR_GLASS_W, 17, 0, $94AAA1, $6E8A83, $476563);
+      if Reclining then DrawTiedCurtain(C, X + 1, CAR_GLASS_Y + 1, 7, CAR_GLASS_H - 3)
+      else
+      begin
+        C.Line(X + 4, CAR_GLASS_Y + 9, X + 4, CAR_GLASS_Y + 54, 1.8, $C99A4F);
+        C.Line(X + 3.7, CAR_GLASS_Y + 9, X + 3.7, CAR_GLASS_Y + 54, 0.7, $F3D28C);
+      end;
+      C.Line(X + 7, CAR_GLASS_Y + 44, X + CAR_GLASS_W - 2, CAR_GLASS_Y + 44, 1.3, $B9C8B7);
     finally
       C.PopClip;
     end;
   end;
 end;
 
-procedure DrawRunSideDoor(C: TTrainCanvas; const S: TTrainSettings; X: Single);
+procedure DrawCarDoorway(C: TTrainCanvas; DoorX: Single; Seat: Cardinal; Reclining: Boolean);
 const
-  Y = RUN_WINDOW_Y - 26;
-  B = 574;
-  W = RUN_DOOR_W;
-  GLASS_W = 54;
-  GLASS_INSET = (W div 2 - GLASS_W) div 2;
-  GLASS_H = RUN_WINDOW_H - 10;
+  B = CAR_DOOR_B;
 var
-  Paint: Cardinal;
+  R: Single;
 begin
-  Paint := Mix(S.Colors.Body, S.Colors.Stripe, 0.76);
-  C.Box(X - 5, Y - 6, W + 10, B - Y + 13, 9, Shade(S.Colors.Body, 0.51));
-  C.Panel(X, Y, W, B - Y, 6, Shade(Paint, 1.23), Paint, Shade(Paint, 0.76));
-  C.BoxEdge(X + 2, Y + 2, W - 4, B - Y - 4, 5, 3, Shade(Paint, 1.36));
-  C.Box(X + W / 2 - 2, Y, 4, B - Y, 0, $34464B);
-  OpaqueWindow(C, X + GLASS_INSET, RUN_WINDOW_Y, GLASS_W, GLASS_H, 7);
-  OpaqueWindow(C, X + W / 2 + GLASS_INSET, RUN_WINDOW_Y, GLASS_W, GLASS_H, 7);
-  C.Box(X + W / 2 - 12, RUN_WINDOW_B + 10, 4, 25, 2, Shade(Paint, 0.51));
-  C.Box(X + W / 2 + 8, RUN_WINDOW_B + 10, 4, 25, 2, Shade(Paint, 0.51));
-  C.Box(X + 5, B - 11, W - 10, 7, 2, Shade(S.Colors.Body, 0.83));
-end;
-
-procedure DrawRunTruckCover(C: TTrainCanvas; X: Single);
-const
-  Y = RUN_BODY_BOTTOM;
-  B = RUN_RAIL_Y + RUN_TRAIN_RISE - 6;
-  W = 220;
-begin
-  C.Polygon([Pt(X, Y), Pt(X + W, Y), Pt(X + W - 8, B - 11),
-    Pt(X + W - 24, B), Pt(X + 25, B), Pt(X + 9, B - 11)], $293437);
-  C.Panel(X + 13, Y + 15, W - 26, 30, 4, $576460, $3E4B49, $303A3C);
-  C.Box(X + 16, Y + 18, W - 32, 4, 1, $6B7670);
-  C.Box(X + 35, Y + 28, 38, 11, 2, $2C383B);
-  C.Box(X + W - 73, Y + 28, 38, 11, 2, $2C383B);
-  C.Line(X + 29, B - 4, X + W - 29, B - 4, 2, $1C292D);
-end;
-
-procedure DrawRunUnderframe(C: TTrainCanvas);
-const
-  Y = RUN_BODY_BOTTOM;
-var
-  I: Integer;
-begin
-  C.Panel(RUN_BODY_L + 12, Y - 5, RUN_BODY_R - RUN_BODY_L - 24, 23, 4,
-    $59665F, $3F4D4B, $263438);
-  DrawRunTruckCover(C, RUN_BODY_L + 134);
-  DrawRunTruckCover(C, RUN_BODY_R - 354);
-  C.Line(196, Y + 30, 1085, Y + 30, 8, $313E41);
-  C.Line(196, Y + 27, 1085, Y + 27, 2, $697873);
-
-  C.Panel(252, Y + 9, 262, 47, 4, $687971, $495654, $303B3D);
-  C.BoxEdge(263, Y + 19, 239, 28, 3, 2, $364447);
-  for I := 0 to 12 do
-  begin
-    C.Box(272 + I * 17, Y + 23, 10, 19, 1, $303D41);
-    C.Box(272 + I * 17, Y + 23, 2, 19, 0, $7A8880);
-  end;
-  C.Box(266, Y + 10, 9, 6, 1, $7B8982);
-  C.Box(491, Y + 10, 9, 6, 1, $7B8982);
-
-  C.Panel(533, Y + 17, 173, 34, 15, $65746E, $526461, $303E41);
-  C.Line(548, Y + 24, 692, Y + 24, 2, $8A978C);
-  C.Box(562, Y + 16, 6, 37, 1, $344247);
-  C.Box(670, Y + 16, 6, 37, 1, $344247);
-  C.Box(697, Y + 31, 17, 6, 1, $42534F);
-
-  C.Panel(726, Y + 10, 176, 49, 4, $64736C, $4F5E59, $313C3F);
-  C.BoxEdge(735, Y + 18, 158, 33, 2, 2, $354347);
-  C.Line(814, Y + 18, 814, Y + 50, 2, $364347);
-  C.Box(747, Y + 30, 17, 4, 1, $9CA99B);
-  C.Box(827, Y + 30, 17, 4, 1, $9CA99B);
-  C.Panel(928, Y + 10, 112, 36, 3, $69766F, $475753, $303B3F);
-  C.Box(937, Y + 20, 31, 11, 2, $364549);
-  C.Box(976, Y + 20, 52, 11, 2, $364549);
-end;
-
-procedure DrawRunBody(C: TTrainCanvas; const S: TTrainSettings);
-var
-  Holes: array[0..2] of TD2D1RoundedRect;
-  I: Integer;
-  X, W, R: Single;
-begin
-  DrawRunUnderframe(C);
-  R := WindowRadius(S.Style);
-  for I := Low(Holes) to High(Holes) do
-    Holes[I] := D2D1RoundedRect(D2D1RectF(RUN_WINDOW_X[I], RUN_WINDOW_Y,
-      RUN_WINDOW_X[I] + RUN_WINDOW_W[I], RUN_WINDOW_B), R, R);
-  C.PushCutouts(D2D1RectF(RUN_BODY_L, 109, RUN_BODY_R, RUN_BODY_BOTTOM), Holes);
+  R := DoorX + CAR_DOOR_W;
+  // 開いたときにだけ見える床・腰板を扉窓の外に描く。閉扉時の窓は走行と同じ車内を映す。
+  C.PushCutouts(D2D1RectF(DoorX, CAR_DOOR_Y, R, B),
+    [DoorGlassCutout(DoorX), DoorGlassCutout(DoorX + CAR_DOOR_W * 0.5)]);
   try
-    C.Panel(RUN_BODY_L + 3, 110, RUN_BODY_R - RUN_BODY_L - 6, 70, 21,
-      $AFBDB8, $879896, $4B6069);
-    Skin(C, S, RUN_BODY_L, 149, RUN_BODY_R - RUN_BODY_L, RUN_BODY_BOTTOM - 149, 23);
-    Livery(C, S, RUN_BODY_L, 534, RUN_BODY_R - RUN_BODY_L, 42);
-    DrawRunSideDoor(C, S, RUN_DOOR_LEFT);
-    DrawRunSideDoor(C, S, DESIGN_W - RUN_DOOR_LEFT - RUN_DOOR_W);
-    C.Line(RUN_BODY_L + 14, 592, RUN_BODY_R - 14, 592, 3, Shade(S.Colors.Body, 0.58), 0.67);
-    C.Line(RUN_BODY_L + 17, 614, RUN_BODY_R - 17, 614, 5, $3B4F56, 0.73);
-    C.Box(594, 162, 92, 13, 5, $50676D);
-    C.Box(613, 166, 54, 4, 2, $BDD4BB);
+    C.Panel(DoorX, CAR_DOOR_Y, CAR_DOOR_W, CAR_DOOR_H, 0, $B9B39B, $BAC8B6, $557475);
+    C.Box(DoorX + 7, CAR_DOOR_Y + 3, CAR_DOOR_W - 14, 2, 0.5, $FFF0C3);
+    if Reclining then
+    begin
+      DrawLuggageRack(C, DoorX + 4, CAR_DOOR_Y + 1, CAR_DOOR_W - 8, 5.5);
+      C.Box(DoorX, B - 32, CAR_DOOR_W, 32, 0, $617F81);
+      C.Line(DoorX + 22, B - 2, DoorX + 22, B - 31, 0.8, $A8B7AA);
+      C.Line(R - 22, B - 2, R - 22, B - 31, 0.8, $A8B7AA);
+    end
+    else
+    begin
+      C.Panel(DoorX + 2, B - 57, 17, 34, 3, Shade(Seat, 1.23), Seat, Shade(Seat, 0.70));
+      C.Panel(R - 19, B - 57, 17, 34, 3, Shade(Seat, 1.23), Seat, Shade(Seat, 0.70));
+      C.Polygon([Pt(DoorX, B), Pt(R, B), Pt(R - 13, B - 32), Pt(DoorX + 13, B - 32)], $617F81);
+      C.Line(DoorX + 19, B - 2, DoorX + 26, B - 31, 0.8, $A8B7AA);
+      C.Line(R - 19, B - 2, R - 26, B - 31, 0.8, $A8B7AA);
+    end;
+    C.Box(DoorX + 1, B - 2, CAR_DOOR_W - 2, 1, 0, $D3C08A);
   finally
     C.PopShapeClip;
   end;
-  for I := Low(Holes) to High(Holes) do
+end;
+
+procedure DrawRunCarInterior(C: TTrainCanvas; const S: TTrainSettings;
+  const Side: TRailSideLayout);
+const
+  TOP = CAR_WINDOW_Y;
+  BOTTOM = TOP + CAR_WINDOW_H;
+var
+  I: Integer;
+  X, W, SeatW: Single;
+  Seat: Cardinal;
+  Reclining: Boolean;
+begin
+  Seat := CabinSeatColor(S);
+  Reclining := not IsCommuter(S.Style);
+  for I := 0 to Side.WindowCount - 1 do
   begin
-    X := RUN_WINDOW_X[I];
-    W := RUN_WINDOW_W[I];
-    C.Box(X, RUN_WINDOW_Y, W, RUN_WINDOW_H, R, $7DAEB8, 0.13);
-    C.BoxEdge(X, RUN_WINDOW_Y, W, RUN_WINDOW_H, R, 10, $263D49);
-    C.BoxEdge(X - 7, RUN_WINDOW_Y - 7, W + 14, RUN_WINDOW_H + 14, R + 7, 3, $A4B3B2, 0.83);
-    C.Line(X + R + 8, RUN_WINDOW_Y + 13, X + W - R - 9, RUN_WINDOW_Y + 13, 3, $D8EBE1, 0.41);
-    C.Polygon([Pt(X + 34, RUN_WINDOW_Y + 20), Pt(X + 65, RUN_WINDOW_Y + 20),
-      Pt(X + 23, RUN_WINDOW_B - 19), Pt(X + 14, RUN_WINDOW_B - 19)], $BFE4E6, 0.17);
-    C.Polygon([Pt(X + W - 43, RUN_WINDOW_Y + 20), Pt(X + W - 32, RUN_WINDOW_Y + 20),
-      Pt(X + W - 55, RUN_WINDOW_B - 63), Pt(X + W - 64, RUN_WINDOW_B - 63)], $E6F0E1, 0.13);
+    X := Side.Windows[I].X;
+    W := Side.Windows[I].Width;
+    if Reclining then
+    begin
+      DrawExpressWindow(C, X, TOP, W, CAR_WINDOW_H, Seat);
+      Continue;
+    end;
+    SeatW := W * 0.23;
+    C.PushClip(X + 2, TOP + 2, W - 4, CAR_WINDOW_H - 4);
+    try
+      C.Box(X + 2, TOP + 1, W - 4, 7, 1, $AAB3A7);
+      C.Box(X + 7, TOP + 3, W - 14, 1.6, 0.5, $FFF1C2, 0.81);
+      C.Box(X + 1, BOTTOM - 23, W - 2, 23, 2, $7D9691);
+      C.Box(X + 1, BOTTOM - 23, W - 2, 1.8, 0.5, $C5CEB4);
+      C.Panel(X + 4, BOTTOM - 15, W - 8, 18, 4, Shade(Seat, 1.27), Seat, Shade(Seat, 0.64));
+      C.Panel(X + 5, BOTTOM - 26, SeatW, 28, 4, Shade(Seat, 1.16), Seat, Shade(Seat, 0.68));
+      C.Panel(X + W - SeatW - 5, BOTTOM - 26, SeatW, 28, 4,
+        Shade(Seat, 1.16), Seat, Shade(Seat, 0.68));
+      C.Box(X + 8, BOTTOM - 23, SeatW - 6, 1.2, 0.5, Shade(Seat, 1.38), 0.75);
+      C.Box(X + W - SeatW - 2, BOTTOM - 23, SeatW - 6, 1.2, 0.5, Shade(Seat, 1.38), 0.75);
+    finally
+      C.PopClip;
+    end;
   end;
+  for I := 0 to Side.DoorCount - 1 do
+  begin
+    DrawCarDoorway(C, Side.Doors[I], Seat, Reclining);
+    DrawCarDoorInterior(C, Side.Doors[I], Reclining);
+  end;
+end;
+
+procedure DrawTrainSideView(C: TTrainCanvas; const S: TTrainSettings; Layer: TTrainSideLayer;
+  Opening: Single = 0);
+var
+  Side: TRailSideLayout;
+  HalfWidth, Left, Right, CarX, DoorX: Single;
+  I, Door: Integer;
+  View, Previous: TD2D1Matrix3x2F;
+begin
+  Side := RailSide(S.Style);
+  HalfWidth := DESIGN_W * 0.5 / (RUN_CAR_SCALE * (S.Tracks[ttZoom] / 100));
+  Left := Side.ViewCenterX - HalfWidth;
+  Right := Side.ViewCenterX + HalfWidth;
+  View := ApplyTrainSideView(C, S, Side);
+  try
+    if Layer = tslBody then
+    begin
+      if Left < 0 then DrawRailCoupling(C, 0, 0);
+      if Right > WIDE_CAR_LENGTH then DrawRailCoupling(C, WIDE_CAR_LENGTH, 0);
+    end;
+    for I := -1 to 1 do
+    begin
+      CarX := I * WIDE_CAR_LENGTH;
+      if (CarX >= Right) or (CarX + WIDE_CAR_LENGTH <= Left) then Continue;
+      Previous := C.ApplyTransform(TD2D1Matrix3x2F.Translation(CarX, 0));
+      try
+        case Layer of
+          tslCabin: DrawRunCarInterior(C, S, Side);
+          tslBody: DrawRailCar(C, S, ceMiddle, cvSide);
+          tslDoors:
+            for Door := 0 to Side.DoorCount - 1 do
+            begin
+              DoorX := Side.Doors[Door];
+              if (CarX + DoorX + CAR_DOOR_W > Left) and (CarX + DoorX < Right) then
+                DrawExteriorDoor(C, S, DoorX, Opening, IsCommuter(S.Style));
+            end;
+        end;
+      finally
+        C.RestoreTransform(Previous);
+      end;
+    end;
+  finally
+    C.RestoreTransform(View);
+  end;
+end;
+
+procedure DrawSlidingDoors(C: TTrainCanvas; const S: TTrainSettings; Opening: Single;
+  Inside: Boolean);
+var
+  Stroke: Single;
+begin
+  if Opening >= 1 then Exit;
+  if not Inside then
+  begin
+    // 走行では閉扉、降車では同じ進捗を画角に入る全車の客用扉へ渡す。
+    DrawTrainSideView(C, S, tslDoors, Opening);
+    Exit;
+  end;
+
+  Stroke := Opening * (BOARD_W * 0.5 + 1);
+  C.PushClip(BOARD_L, BOARD_T, BOARD_W, BOARD_H);
+  try
+    BoardDoorLeaf(C, S, BOARD_L - Stroke, True);
+    BoardDoorLeaf(C, S, BOARD_L + BOARD_W * 0.5 + Stroke, False);
+  finally
+    C.PopClip;
+  end;
+end;
+
+procedure DrawRunCabin(C: TTrainCanvas; const S: TTrainSettings);
+begin
+  DrawTrainSideView(C, S, tslCabin);
+end;
+
+procedure DrawRunBody(C: TTrainCanvas; const S: TTrainSettings);
+begin
+  DrawTrainSideView(C, S, tslBody);
+end;
+
+procedure DrawExitRear(C: TTrainCanvas; const S: TTrainSettings);
+begin
+  DrawRunCabin(C, S);
+  DrawRunBody(C, S);
 end;
 
 end.

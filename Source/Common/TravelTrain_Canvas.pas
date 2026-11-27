@@ -23,14 +23,20 @@ type
     procedure PushGeometryClip(const Bounds: TD2D1RectF; const Geometry: ID2D1Geometry;
       Opacity: Single = 1);
   public
+    // 描画先とファクトリを参照保持する。BeginDraw と EndDraw は呼び出し側が管理する。
     constructor Create(const Factory: ID2D1Factory; const Target: ID2D1RenderTarget);
+    // 座標は論理ピクセル。PushClip と PopClip は同じ描画先で対応させる。
     procedure PushClip(X, Y, W, H: Single);
     procedure PopClip;
+    // Bounds から Holes を除いた領域、または Points で囲む領域へ描画を制限する。
+    // どちらも PopShapeClip で元の描画範囲へ戻す。
     procedure PushCutouts(const Bounds: TD2D1RectF; const Holes: array of TD2D1RoundedRect);
     procedure PushShapeClip(const Bounds: TD2D1RectF; const Points: array of TD2D1Point2F);
     procedure PopShapeClip;
+    // 変換を合成し、RestoreTransform に渡す直前の行列を返す。
     function ApplyTransform(const Transform: TD2D1Matrix3x2F): TD2D1Matrix3x2F;
     procedure RestoreTransform(const Transform: TD2D1Matrix3x2F);
+    // 色は $RRGGBB、Alpha は 0 が透明、1 が不透明。太さも論理ピクセルで指定する。
     procedure Line(X1, Y1, X2, Y2, Stroke: Single; Color: Cardinal; Alpha: Single = 1);
     procedure Oval(X, Y, RX, RY: Single; Color: Cardinal; Alpha: Single = 1);
     procedure Ring(X, Y, RX, RY, Stroke: Single; Color: Cardinal);
@@ -46,8 +52,11 @@ type
     procedure Glow(X, Y, RX, RY: Single; Color: Cardinal; Alpha: Single);
   end;
 
+// 係数 1 を基準に暗くするか白に近づける。
 function Shade(Color: Cardinal; Factor: Single): Cardinal;
+// 2色を混ぜる。Weight が 0 なら First、1 なら Second。
 function Mix(First, Second: Cardinal; Weight: Single): Cardinal;
+// 論理座標を Direct2D の頂点にする。
 function Pt(X, Y: Single): TD2D1Point2F; inline;
 
 implementation

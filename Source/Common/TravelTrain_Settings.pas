@@ -26,7 +26,7 @@ const
 type
   TTrainScene = (tsArrival, tsBoard, tsRun, tsExit, tsDeparture);
   TTrainStyle = (trStainless, trPainted, trExpress, trStreamlined);
-  TTrainScenery = (scCountryside, scTown, scCoast);
+  TTrainScenery = (scCountryside, scTown, scCoast, scResidential);
   TTrainLayer = (lyArrivalPlatform, lyArrivalTrain, lyBoardPlatform, lyBoardDoors,
     lyBoardCabin, lyRunRear, lyRunFront, lyExitRear, lyExitDoors, lyDeparture);
   TTrainTrack = (ttArrivalBefore, ttArrivalMove, ttArrivalAfter,
@@ -61,7 +61,7 @@ const
   SCENE_NAMES: array[TTrainScene] of PWideChar = ('到着', '乗車', '走行', '降車', '発車');
   STYLE_NAMES: array[TTrainStyle] of PWideChar = ('通勤電車（ステンレス車体）',
     '通勤電車（塗装車体）', '特急電車（箱型）', '特急電車（流線型）');
-  SCENERY_NAMES: array[TTrainScenery] of PWideChar = ('田園', '市街地', '海岸');
+  SCENERY_NAMES: array[TTrainScenery] of PWideChar = ('田園', 'ビル街', '海岸', '住宅街');
   LAYER_NAMES: array[TTrainLayer] of PWideChar = ('到着：ホーム背景', '到着：列車本体',
     '乗車：ホーム背景', '乗車：扉', '乗車：車内', '走行：風景・車内・座席',
     '走行：車体・窓・前景物', '降車：ホーム・車体・車内', '降車：扉', '発車：ホーム・列車');
@@ -122,6 +122,7 @@ var
 begin
   Result := Default(TTrainSettings);
   Result.Scene := Scene;
+  Result.Scenery := scTown;
   Result.Colors := TRAIN_PALETTES[Result.Style];
   Result.Layers := [Low(TTrainLayer)..High(TTrainLayer)];
   Result.ForegroundPoles := True;

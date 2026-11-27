@@ -15,7 +15,9 @@ type
     Layer: TTrainLayer;
     Colors: TTrainColors;
     Style: TTrainStyle;
-    Zoom: Integer;
+    Scenery: TTrainScenery;
+    Seed, Zoom: Integer;
+    Elevation: Double;
   end;
   TTrainRenderer = class
   private
@@ -36,7 +38,8 @@ type
     procedure ReadPixels;
   public
     destructor Destroy; override;
-    // 呼び出しはインスタンス単位で直列化する。ホストには呼出中だけ画像を渡す。
+    // Width と Height は実ピクセル、Seconds はオブジェクト先頭からの秒数。
+    // 呼び出し側がインスタンス単位で直列化する。Video へ渡す画像はコールバック中だけ有効。
     procedure Render(Video: PFILTER_PROC_VIDEO; Width, Height: Integer;
       const S: TTrainSettings; Seconds: Double);
   end;
@@ -55,32 +58,18 @@ function CoDecrementMTAUsage(Cookie: Pointer): HRESULT; stdcall;
   external 'ole32.dll' name 'CoDecrementMTAUsage';
 
 procedure DrawStatic(C: TTrainCanvas; Layer: TTrainLayer; const S: TTrainSettings);
-var
-  Transform: TD2D1Matrix3x2F;
-  Zoom: Single;
 begin
   case Layer of
-    lyArrivalPlatform, lyDeparture: DrawStation(C, S.Scene);
+    lyArrivalPlatform, lyDeparture: DrawStation(C, S);
     lyBoardPlatform:
       begin
-        DrawStation(C, S.Scene);
+        DrawStation(C, S);
         DrawBoardFloor(C);
       end;
     lyBoardCabin: DrawBoardCabin(C, S);
     lyExitRear: DrawExitRear(C, S);
-    lyRunRear, lyRunFront:
-      begin
-        Zoom := S.Tracks[ttZoom] / 100;
-        // 窓と座席を同じ位置へ移す。線路面は移動量を含まず、同じ基準点で拡大する。
-        Transform := C.ApplyTransform(TD2D1Matrix3x2F.Translation(0, -RUN_TRAIN_RISE) *
-          TD2D1Matrix3x2F.Scale(Zoom, Zoom, Pt(DESIGN_W / 2, DESIGN_H / 2)));
-        try
-          if Layer = lyRunRear then DrawRunCabin(C, S)
-          else DrawRunBody(C, S);
-        finally
-          C.RestoreTransform(Transform);
-        end;
-      end;
+    lyRunRear: DrawRunCabin(C, S);
+    lyRunFront: DrawRunBody(C, S);
   end;
 end;
 
@@ -148,14 +137,25 @@ begin
   end;
   Entry := Default(TTrainImageCache);
   Entry.Layer := Layer;
+  if Layer in [lyArrivalPlatform, lyBoardPlatform, lyDeparture] then
+  begin
+    Entry.Elevation := S.Tracks[ttElevation];
+    if Entry.Elevation > -1 then
+    begin
+      Entry.Scenery := S.Scenery;
+      if S.Scenery <> scCountryside then Entry.Seed := Round(S.Tracks[ttSeed]);
+    end;
+  end;
   if Layer in [lyBoardCabin, lyExitRear, lyRunRear, lyRunFront] then
   begin
     Entry.Style := S.Style;
     Entry.Colors := S.Colors;
   end;
-  if Layer in [lyRunRear, lyRunFront] then Entry.Zoom := Round(S.Tracks[ttZoom] * 10000);
+  if Layer in [lyRunRear, lyRunFront, lyExitRear] then Entry.Zoom := Round(S.Tracks[ttZoom] * 10000);
   if (FCache[Slot].Bitmap <> nil) and (FCache[Slot].Layer = Entry.Layer) and
-    (FCache[Slot].Style = Entry.Style) and (FCache[Slot].Zoom = Entry.Zoom) and
+    (FCache[Slot].Scenery = Entry.Scenery) and (FCache[Slot].Seed = Entry.Seed) and
+    (FCache[Slot].Elevation = Entry.Elevation) and (FCache[Slot].Style = Entry.Style) and
+    (FCache[Slot].Zoom = Entry.Zoom) and
     (FCache[Slot].Colors.Body = Entry.Colors.Body) and
     (FCache[Slot].Colors.Stripe = Entry.Colors.Stripe) then Exit;
 
@@ -201,6 +201,18 @@ begin
 end;
 
 procedure TTrainRenderer.PaintFrame(const S: TTrainSettings; const F: TTrainFrame);
+  procedure DrawSideViewBackground;
+  begin
+    DrawLandscape(FCanvas, S, F.Distance);
+    if S.Scene = tsRun then
+    begin
+      DrawRunningStartPlatform(FCanvas, S.Tracks[ttElevation], F.Distance, F.RunLength);
+      DrawRunningArrivalStation(FCanvas, S.Tracks[ttElevation], F.ArrivalProgress);
+    end
+    else
+      DrawRunningArrivalStation(FCanvas, S.Tracks[ttElevation], 1);
+    DrawRunningTrack(FCanvas, S.Tracks[ttElevation], F.Distance, S.Tracks[ttZoom]);
+  end;
 begin
   case S.Scene of
     tsArrival:
@@ -218,19 +230,26 @@ begin
       begin
         if lyRunRear in S.Layers then
         begin
-          DrawLandscape(FCanvas, S, F.Distance);
-          DrawRunningTrack(FCanvas, S.Tracks[ttElevation], F.Distance, S.Tracks[ttZoom]);
+          DrawSideViewBackground;
           PaintStatic(0, lyRunRear, S);
         end;
         if lyRunFront in S.Layers then
         begin
           PaintStatic(1, lyRunFront, S);
-          if S.ForegroundPoles then DrawPassingPoles(FCanvas, S.Tracks[ttElevation], F.Distance);
+          DrawSlidingDoors(FCanvas, S, 0, False);
+          DrawRunningArrivalPlatform(FCanvas, S.Tracks[ttElevation], F.ArrivalProgress, S.Tracks[ttZoom]);
+          if S.ForegroundPoles then
+            DrawPassingPoles(FCanvas, S.Tracks[ttElevation], F.Distance, 1 - F.ArrivalProgress);
         end;
       end;
     tsExit:
       begin
-        if lyExitRear in S.Layers then PaintStatic(0, lyExitRear, S);
+        if lyExitRear in S.Layers then
+        begin
+          DrawSideViewBackground;
+          PaintStatic(0, lyExitRear, S);
+          DrawRunningArrivalPlatform(FCanvas, S.Tracks[ttElevation], 1, S.Tracks[ttZoom]);
+        end;
         if lyExitDoors in S.Layers then DrawSlidingDoors(FCanvas, S, F.DoorOpen, False);
       end;
     tsDeparture:
