@@ -62,7 +62,7 @@ end;
 procedure DrawWideStationFloor(C: TTrainCanvas; RailY: Single; Scene: TTrainScene; Depth: Single);
 var
   I: Integer;
-  X, Y, Edge, Ballast, FarRail, NearTop, WallH: Single;
+  X, Y, Edge, Ballast, FarRail, NearTop: Single;
   Gravel: Cardinal;
 begin
   Edge := RailY - 59;
@@ -116,14 +116,13 @@ begin
   for I := 0 to 24 do
     C.Box(I * 51.5 + 10, RailY + 9, 9, 3, 1, $8C9389);
 
-  NearTop := RailY + 36;
-  WallH := 18;
   if Scene = tsArrival then
   begin
     NearTop := RailY + 17;
-    WallH := 9;
-  end;
-  C.Panel(0, NearTop - WallH + 1, DESIGN_W, WallH, 0, $374348, $56615D, $6D7872);
+    C.Panel(0, NearTop - 8, DESIGN_W, 9, 0, $374348, $56615D, $6D7872);
+  end
+  else
+    NearTop := WIDE_DEPARTURE_PLATFORM_Y;
   PlatformTiles(C, NearTop, True, False, Depth);
 end;
 

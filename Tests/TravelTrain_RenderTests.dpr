@@ -389,6 +389,12 @@ begin
   SelectScene(tsDeparture);
   SelectLayers(SCENE_LAYERS[tsDeparture]);
   Ref := Render(Session, 8);
+  I := Ceil(WIDE_DEPARTURE_PLATFORM_Y / 2) * 640;
+  Check((Ref[I + 320].R > 220) and (Ref[I + 320].B < 180),
+    'The departure platform edge must be just below the door sill');
+  Part := Render(Session, 0);
+  Check(CompareMem(@Ref[I], @Part[I], (Length(Ref) - I) * SizeOf(Ref[0])),
+    'The foreground platform must hide the departure underframe and wheels');
   TailTime := TRAIN_TRACKS[ttDepartBefore].Initial + TRAIN_TRACKS[ttDepartMove].Initial *
     Sqrt((WIDE_CAR_COUNT * WIDE_CAR_LENGTH * WIDE_TRAIN_SCALE - WIDE_TRAIN_NOSE + 144) /
       WIDE_DEPART_DISTANCE);

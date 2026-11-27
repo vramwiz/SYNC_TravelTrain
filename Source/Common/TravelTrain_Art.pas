@@ -27,13 +27,10 @@ implementation
 uses System.Math, Winapi.D2D1;
 
 const
-  WIDE_BODY_H = 182;
-  WIDE_UNDERFRAME_H = 42;
   WIDE_WHEEL_RADIUS = 17;
   CAR_WINDOW_Y = 49;
   CAR_WINDOW_H = 59;
   CAR_DOOR_Y = 45;
-  CAR_DOOR_B = 169;
   CAR_DOOR_H = CAR_DOOR_B - CAR_DOOR_Y;
   CAR_DOOR_W = 78;
   CAR_DOOR_LEAF_W = CAR_DOOR_W / 2 + 0.5;
@@ -550,7 +547,7 @@ begin
       if View = cvWide then DrawExteriorDoor(C, S, DoorX, 0, False);
       C.BoxEdge(DoorX - 1.2, CAR_DOOR_Y - 1.2, CAR_DOOR_W + 2.4, CAR_DOOR_H + 2.4,
         2.4, 2.2, Shade(S.Colors.Body, 0.53));
-      C.Box(DoorX + 3, CAR_DOOR_B + 1, CAR_DOOR_W - 6, 3, 1, $718080);
+      C.Box(DoorX + 3, CAR_DOOR_SILL_Y, CAR_DOOR_W - 6, CAR_DOOR_SILL_H, 1, $718080);
     end;
 
     for I := 0 to WindowCount - 1 do

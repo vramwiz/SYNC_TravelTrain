@@ -256,7 +256,16 @@ begin
       if lyDeparture in S.Layers then
       begin
         PaintStatic(0, lyDeparture, S);
-        if F.TrainVisible then DrawWideTrain(FCanvas, S, F.TrainX, True);
+        if F.TrainVisible then
+        begin
+          // 固定背景に描いた手前ホームで床下と車輪を隠す。
+          FCanvas.PushClip(0, 0, DESIGN_W, WIDE_DEPARTURE_PLATFORM_Y);
+          try
+            DrawWideTrain(FCanvas, S, F.TrainX, True);
+          finally
+            FCanvas.PopClip;
+          end;
+        end;
       end;
   end;
 end;
